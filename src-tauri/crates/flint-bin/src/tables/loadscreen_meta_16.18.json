@@ -1,0 +1,1732 @@
+{
+  "source": "https://github.com/LeagueToolkit/lol-meta-classes/releases/tag/v16.18.8159717",
+  "formatVersion": 3,
+  "version": "16.18",
+  "classes": {
+    "0xa742684a": {
+      "base": "0x7d8e7504",
+      "secondary_bases": {},
+      "properties": {
+        "0x5005a7a1": {
+          "other_class": null,
+          "offset": 91,
+          "bitmask": 0,
+          "value_type": "Bool",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x9e17f690": {
+          "other_class": null,
+          "offset": 72,
+          "bitmask": 0,
+          "value_type": "F32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xa6517bab": {
+          "other_class": null,
+          "offset": 68,
+          "bitmask": 0,
+          "value_type": "F32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xe502c1dc": {
+          "other_class": "0x840074ef",
+          "offset": 96,
+          "bitmask": 0,
+          "value_type": "Pointer",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xede3943e": {
+          "other_class": null,
+          "offset": 90,
+          "bitmask": 0,
+          "value_type": "Bool",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xee3c0711": {
+          "other_class": null,
+          "offset": 104,
+          "bitmask": 0,
+          "value_type": "U8",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xeee395d1": {
+          "other_class": null,
+          "offset": 89,
+          "bitmask": 0,
+          "value_type": "Bool",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xff72f56a": {
+          "other_class": null,
+          "offset": 64,
+          "bitmask": 0,
+          "value_type": "F32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        }
+      }
+    },
+    "0x7d8e7504": {
+      "base": "0xca9295fb",
+      "secondary_bases": {},
+      "properties": {}
+    },
+    "0xca9295fb": {
+      "base": "0x62fa6cad",
+      "secondary_bases": {},
+      "properties": {}
+    },
+    "0x62fa6cad": {
+      "base": "0x398ea534",
+      "secondary_bases": {},
+      "properties": {
+        "0x2f3b39e": {
+          "other_class": null,
+          "offset": 35,
+          "bitmask": 0,
+          "value_type": "Bool",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x7a640f6": {
+          "other_class": null,
+          "offset": 40,
+          "bitmask": 0,
+          "value_type": "U32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x8c7e787b": {
+          "other_class": "0x87b79cec",
+          "offset": 56,
+          "bitmask": 0,
+          "value_type": "Pointer",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x934f4e0a": {
+          "other_class": "0xdb3289d",
+          "offset": 48,
+          "bitmask": 0,
+          "value_type": "Pointer",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x98ba36f3": {
+          "other_class": null,
+          "offset": 36,
+          "bitmask": 0,
+          "value_type": "Bool",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        }
+      }
+    },
+    "0x398ea534": {
+      "base": null,
+      "secondary_bases": {},
+      "properties": {
+        "0x2063cb13": {
+          "other_class": "0x202c6c9",
+          "offset": 24,
+          "bitmask": 0,
+          "value_type": "Link",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x8d39bde6": {
+          "other_class": null,
+          "offset": 8,
+          "bitmask": 0,
+          "value_type": "String",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xe13c4b8e": {
+          "other_class": null,
+          "offset": 32,
+          "bitmask": 0,
+          "value_type": "Bool",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        }
+      }
+    },
+    "0x719f1a94": {
+      "base": "0x7b542261",
+      "secondary_bases": {
+        "0x840074ef": 32
+      },
+      "properties": {
+        "0x257ce80c": {
+          "other_class": null,
+          "offset": 40,
+          "bitmask": 0,
+          "value_type": "Vec4",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        }
+      }
+    },
+    "0x7b542261": {
+      "base": "0xb4745778",
+      "secondary_bases": {},
+      "properties": {
+        "0x9f9705c7": {
+          "other_class": null,
+          "offset": 20,
+          "bitmask": 0,
+          "value_type": "U32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xabb79fd0": {
+          "other_class": null,
+          "offset": 16,
+          "bitmask": 0,
+          "value_type": "U32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xf9721a78": {
+          "other_class": null,
+          "offset": 8,
+          "bitmask": 0,
+          "value_type": "File",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        }
+      }
+    },
+    "0xb4745778": {
+      "base": null,
+      "secondary_bases": {},
+      "properties": {}
+    },
+    "0x840074ef": {
+      "base": null,
+      "secondary_bases": {},
+      "properties": {}
+    },
+    "0x44600fb6": {
+      "base": "0xdb3289d",
+      "secondary_bases": {},
+      "properties": {
+        "0x23563745": {
+          "other_class": "0x7f0a1e81",
+          "offset": 40,
+          "bitmask": 0,
+          "value_type": "Pointer",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x3a8bfbed": {
+          "other_class": "0x4eb9ba4f",
+          "offset": 8,
+          "bitmask": 0,
+          "value_type": "Embed",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x3b6daffe": {
+          "other_class": null,
+          "offset": 53,
+          "bitmask": 0,
+          "value_type": "U8",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x487fcd1a": {
+          "other_class": null,
+          "offset": 48,
+          "bitmask": 0,
+          "value_type": "Bool",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x80ba1308": {
+          "other_class": null,
+          "offset": 64,
+          "bitmask": 0,
+          "value_type": "Vec2",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x92944b54": {
+          "other_class": null,
+          "offset": 54,
+          "bitmask": 0,
+          "value_type": "U8",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x981fbd00": {
+          "other_class": null,
+          "offset": 52,
+          "bitmask": 0,
+          "value_type": "Bool",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xd7347ec4": {
+          "other_class": null,
+          "offset": 50,
+          "bitmask": 0,
+          "value_type": "Bool",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xd8348057": {
+          "other_class": null,
+          "offset": 49,
+          "bitmask": 0,
+          "value_type": "Bool",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xe7b6c70d": {
+          "other_class": null,
+          "offset": 51,
+          "bitmask": 0,
+          "value_type": "Bool",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xeaebcf6e": {
+          "other_class": null,
+          "offset": 56,
+          "bitmask": 0,
+          "value_type": "Vec2",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        }
+      }
+    },
+    "0xdb3289d": {
+      "base": null,
+      "secondary_bases": {},
+      "properties": {}
+    },
+    "0x4eb9ba4f": {
+      "base": null,
+      "secondary_bases": {},
+      "properties": {
+        "0x23a0d95c": {
+          "other_class": null,
+          "offset": 16,
+          "bitmask": 0,
+          "value_type": "Vec2",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x934f4e0a": {
+          "other_class": null,
+          "offset": 8,
+          "bitmask": 0,
+          "value_type": "Vec2",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xa19b2e69": {
+          "other_class": null,
+          "offset": 26,
+          "bitmask": 0,
+          "value_type": "U16",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xf6647cd6": {
+          "other_class": null,
+          "offset": 24,
+          "bitmask": 0,
+          "value_type": "U16",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        }
+      }
+    },
+    "0xff9d3409": {
+      "base": "0x20a178b8",
+      "secondary_bases": {
+        "0xecf76724": 16
+      },
+      "properties": {
+        "0x5127f14d": {
+          "other_class": null,
+          "offset": 40,
+          "bitmask": 0,
+          "value_type": "U8",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x69030632": {
+          "other_class": "0x272ca74d",
+          "offset": 144,
+          "bitmask": 0,
+          "value_type": "List",
+          "container": {
+            "vtable": "0x2767808",
+            "value_type": "Embed",
+            "value_size": 40,
+            "fixed_size": null,
+            "storage": "UnknownVector"
+          },
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x844f384e": {
+          "other_class": "0x60a4413",
+          "offset": 112,
+          "bitmask": 0,
+          "value_type": "List",
+          "container": {
+            "vtable": "0x2767738",
+            "value_type": "Embed",
+            "value_size": 32,
+            "fixed_size": null,
+            "storage": "UnknownVector"
+          },
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x86875ff3": {
+          "other_class": "0x2d6bf1a2",
+          "offset": 160,
+          "bitmask": 0,
+          "value_type": "Pointer",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x8d39bde6": {
+          "other_class": null,
+          "offset": 24,
+          "bitmask": 0,
+          "value_type": "String",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x9330e6b6": {
+          "other_class": "0x735b4c95",
+          "offset": 128,
+          "bitmask": 0,
+          "value_type": "List",
+          "container": {
+            "vtable": "0x27677a0",
+            "value_type": "Embed",
+            "value_size": 48,
+            "fixed_size": null,
+            "storage": "UnknownVector"
+          },
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xa6f0eb5": {
+          "other_class": "0x904b150",
+          "offset": 48,
+          "bitmask": 0,
+          "value_type": "List2",
+          "container": {
+            "vtable": "0x2767668",
+            "value_type": "Embed",
+            "value_size": 72,
+            "fixed_size": null,
+            "storage": "UnknownVector"
+          },
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xd0ab46b8": {
+          "other_class": "0xde480eef",
+          "offset": 64,
+          "bitmask": 0,
+          "value_type": "List2",
+          "container": {
+            "vtable": "0x2767598",
+            "value_type": "Embed",
+            "value_size": 32,
+            "fixed_size": null,
+            "storage": "UnknownVector"
+          },
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xdd7ddb9d": {
+          "other_class": "0xe2212a1",
+          "offset": 80,
+          "bitmask": 0,
+          "value_type": "List2",
+          "container": {
+            "vtable": "0x27676d0",
+            "value_type": "Embed",
+            "value_size": 24,
+            "fixed_size": null,
+            "storage": "UnknownVector"
+          },
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xe6d67ded": {
+          "other_class": null,
+          "offset": 96,
+          "bitmask": 0,
+          "value_type": "Map",
+          "container": null,
+          "map": {
+            "vtable": "0x2668ef0",
+            "key_type": "String",
+            "value_type": "String",
+            "storage": "UnknownMap"
+          },
+          "hasher": null,
+          "unkptr": "0x0"
+        }
+      }
+    },
+    "0x20a178b8": {
+      "base": null,
+      "secondary_bases": {},
+      "properties": {}
+    },
+    "0xecf76724": {
+      "base": null,
+      "secondary_bases": {},
+      "properties": {}
+    },
+    "0x8537d0c2": {
+      "base": null,
+      "secondary_bases": {},
+      "properties": {
+        "0x166c54c5": {
+          "other_class": null,
+          "offset": 56,
+          "bitmask": 0,
+          "value_type": "Hash",
+          "container": null,
+          "map": null,
+          "hasher": "0x2664680",
+          "unkptr": "0x0"
+        },
+        "0x22c0c7d0": {
+          "other_class": null,
+          "offset": 76,
+          "bitmask": 0,
+          "value_type": "U32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x23b75597": {
+          "other_class": null,
+          "offset": 42,
+          "bitmask": 0,
+          "value_type": "Bool",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x355d5568": {
+          "other_class": "0xbbc515c",
+          "offset": 0,
+          "bitmask": 0,
+          "value_type": "Link",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x40869d0": {
+          "other_class": null,
+          "offset": 104,
+          "bitmask": 0,
+          "value_type": "F32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x445cbefc": {
+          "other_class": null,
+          "offset": 41,
+          "bitmask": 0,
+          "value_type": "Bool",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x4b0f55ce": {
+          "other_class": null,
+          "offset": 43,
+          "bitmask": 0,
+          "value_type": "Bool",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x4b92c1ec": {
+          "other_class": null,
+          "offset": 96,
+          "bitmask": 0,
+          "value_type": "U32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x599391f5": {
+          "other_class": null,
+          "offset": 72,
+          "bitmask": 0,
+          "value_type": "U32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x7385e534": {
+          "other_class": null,
+          "offset": 88,
+          "bitmask": 0,
+          "value_type": "U32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x8ffbd6de": {
+          "other_class": null,
+          "offset": 92,
+          "bitmask": 0,
+          "value_type": "U32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x97a78d34": {
+          "other_class": null,
+          "offset": 52,
+          "bitmask": 0,
+          "value_type": "U32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xa0958d01": {
+          "other_class": null,
+          "offset": 80,
+          "bitmask": 0,
+          "value_type": "U32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xa0c7176b": {
+          "other_class": null,
+          "offset": 48,
+          "bitmask": 0,
+          "value_type": "U32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xaab4104c": {
+          "other_class": null,
+          "offset": 44,
+          "bitmask": 0,
+          "value_type": "Bool",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xb06c36e4": {
+          "other_class": null,
+          "offset": 68,
+          "bitmask": 0,
+          "value_type": "U32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xb68bc527": {
+          "other_class": null,
+          "offset": 60,
+          "bitmask": 0,
+          "value_type": "U32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xba5121ec": {
+          "other_class": null,
+          "offset": 100,
+          "bitmask": 0,
+          "value_type": "U32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xbe0abbf5": {
+          "other_class": null,
+          "offset": 84,
+          "bitmask": 0,
+          "value_type": "U32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xcd909507": {
+          "other_class": null,
+          "offset": 45,
+          "bitmask": 0,
+          "value_type": "U8",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xd0ab46b8": {
+          "other_class": "0xde480eef",
+          "offset": 24,
+          "bitmask": 0,
+          "value_type": "List",
+          "container": {
+            "vtable": "0x2767598",
+            "value_type": "Embed",
+            "value_size": 32,
+            "fixed_size": null,
+            "storage": "UnknownVector"
+          },
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xd2507939": {
+          "other_class": null,
+          "offset": 40,
+          "bitmask": 0,
+          "value_type": "Bool",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xdcb9e030": {
+          "other_class": null,
+          "offset": 64,
+          "bitmask": 0,
+          "value_type": "U32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xe6d67ded": {
+          "other_class": null,
+          "offset": 8,
+          "bitmask": 0,
+          "value_type": "Map",
+          "container": null,
+          "map": {
+            "vtable": "0x2668ef0",
+            "key_type": "String",
+            "value_type": "String",
+            "storage": "UnknownMap"
+          },
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xfd51260c": {
+          "other_class": null,
+          "offset": 108,
+          "bitmask": 0,
+          "value_type": "F32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        }
+      }
+    },
+    "0x60a4413": {
+      "base": null,
+      "secondary_bases": {},
+      "properties": {
+        "0x623cd25c": {
+          "other_class": "0x8537d0c2",
+          "offset": 16,
+          "bitmask": 0,
+          "value_type": "List",
+          "container": {
+            "vtable": "0x2767600",
+            "value_type": "Embed",
+            "value_size": 112,
+            "fixed_size": null,
+            "storage": "UnknownVector"
+          },
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x8d39bde6": {
+          "other_class": null,
+          "offset": 0,
+          "bitmask": 0,
+          "value_type": "String",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        }
+      }
+    },
+    "0x904b150": {
+      "base": null,
+      "secondary_bases": {},
+      "properties": {
+        "0x101ec53f": {
+          "other_class": null,
+          "offset": 52,
+          "bitmask": 0,
+          "value_type": "U32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x111ec6d2": {
+          "other_class": null,
+          "offset": 48,
+          "bitmask": 0,
+          "value_type": "U32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x19310df1": {
+          "other_class": null,
+          "offset": 60,
+          "bitmask": 0,
+          "value_type": "U32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x4044d30e": {
+          "other_class": null,
+          "offset": 64,
+          "bitmask": 0,
+          "value_type": "U32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x4c914c8d": {
+          "other_class": null,
+          "offset": 24,
+          "bitmask": 0,
+          "value_type": "Map",
+          "container": null,
+          "map": {
+            "vtable": "0x27674a0",
+            "key_type": "Hash",
+            "value_type": "File",
+            "storage": "UnknownMap"
+          },
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xb311d4ef": {
+          "other_class": null,
+          "offset": 0,
+          "bitmask": 0,
+          "value_type": "String",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xf0a363e3": {
+          "other_class": null,
+          "offset": 16,
+          "bitmask": 0,
+          "value_type": "File",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xf1ec3ac": {
+          "other_class": null,
+          "offset": 56,
+          "bitmask": 0,
+          "value_type": "U32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        }
+      }
+    },
+    "0xde480eef": {
+      "base": null,
+      "secondary_bases": {},
+      "properties": {
+        "0x425ed3ca": {
+          "other_class": null,
+          "offset": 16,
+          "bitmask": 0,
+          "value_type": "Vec4",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x8d39bde6": {
+          "other_class": null,
+          "offset": 0,
+          "bitmask": 0,
+          "value_type": "String",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        }
+      }
+    },
+    "0xe2212a1": {
+      "base": null,
+      "secondary_bases": {},
+      "properties": {
+        "0x61342fd0": {
+          "other_class": null,
+          "offset": 16,
+          "bitmask": 0,
+          "value_type": "Bool",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x8d39bde6": {
+          "other_class": null,
+          "offset": 0,
+          "bitmask": 0,
+          "value_type": "String",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        }
+      }
+    },
+    "0x9b67e9f6": {
+      "base": null,
+      "secondary_bases": {},
+      "properties": {
+        "0x123393ed": {
+          "other_class": null,
+          "offset": 888,
+          "bitmask": 0,
+          "value_type": "List",
+          "container": {
+            "vtable": "0x2664f70",
+            "value_type": "String",
+            "value_size": 16,
+            "fixed_size": null,
+            "storage": "UnknownVector"
+          },
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x1b2d7605": {
+          "other_class": null,
+          "offset": 920,
+          "bitmask": 0,
+          "value_type": "String",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x1d369c29": {
+          "other_class": null,
+          "offset": 1372,
+          "bitmask": 0,
+          "value_type": "Hash",
+          "container": null,
+          "map": null,
+          "hasher": "0x2664680",
+          "unkptr": "0x0"
+        },
+        "0x227212f5": {
+          "other_class": null,
+          "offset": 824,
+          "bitmask": 0,
+          "value_type": "String",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x241e976e": {
+          "other_class": null,
+          "offset": 1000,
+          "bitmask": 0,
+          "value_type": "Option",
+          "container": {
+            "vtable": "0x26646c0",
+            "value_type": "F32",
+            "value_size": 4,
+            "fixed_size": null,
+            "storage": null
+          },
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x25f9aa72": {
+          "other_class": null,
+          "offset": 1320,
+          "bitmask": 0,
+          "value_type": "U32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x29306858": {
+          "other_class": null,
+          "offset": 1232,
+          "bitmask": 0,
+          "value_type": "String",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x2ac577e2": {
+          "other_class": null,
+          "offset": 856,
+          "bitmask": 0,
+          "value_type": "Bool",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x2c317acb": {
+          "other_class": null,
+          "offset": 176,
+          "bitmask": 0,
+          "value_type": "String",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x2d0d1f1d": {
+          "other_class": null,
+          "offset": 784,
+          "bitmask": 0,
+          "value_type": "String",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x2d78c328": {
+          "other_class": null,
+          "offset": 64,
+          "bitmask": 0,
+          "value_type": "String",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x3c84e8f5": {
+          "other_class": null,
+          "offset": 1056,
+          "bitmask": 0,
+          "value_type": "List",
+          "container": {
+            "vtable": "0x2669c68",
+            "value_type": "File",
+            "value_size": 8,
+            "fixed_size": null,
+            "storage": "UnknownVector"
+          },
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x3ffe79cc": {
+          "other_class": null,
+          "offset": 840,
+          "bitmask": 0,
+          "value_type": "String",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x426d89a3": {
+          "other_class": "0x426d89a3",
+          "offset": 408,
+          "bitmask": 0,
+          "value_type": "Embed",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x45ff5904": {
+          "other_class": "0x6111d8a4",
+          "offset": 416,
+          "bitmask": 0,
+          "value_type": "Embed",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x46558f0e": {
+          "other_class": null,
+          "offset": 1324,
+          "bitmask": 0,
+          "value_type": "U8",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x4678b8f7": {
+          "other_class": null,
+          "offset": 280,
+          "bitmask": 0,
+          "value_type": "String",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x4c73c8c6": {
+          "other_class": null,
+          "offset": 80,
+          "bitmask": 0,
+          "value_type": "U32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x514b1c48": {
+          "other_class": null,
+          "offset": 84,
+          "bitmask": 0,
+          "value_type": "I32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x51c83af8": {
+          "other_class": "0x11b71b5e",
+          "offset": 192,
+          "bitmask": 0,
+          "value_type": "Embed",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x53ad3c01": {
+          "other_class": null,
+          "offset": 800,
+          "bitmask": 0,
+          "value_type": "List",
+          "container": {
+            "vtable": "0x2664f70",
+            "value_type": "String",
+            "value_size": 16,
+            "fixed_size": null,
+            "storage": "UnknownVector"
+          },
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x55d3758e": {
+          "other_class": null,
+          "offset": 344,
+          "bitmask": 0,
+          "value_type": "String",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x592970c": {
+          "other_class": null,
+          "offset": 816,
+          "bitmask": 0,
+          "value_type": "Bool",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x5f094353": {
+          "other_class": null,
+          "offset": 1256,
+          "bitmask": 0,
+          "value_type": "String",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x62286e7e": {
+          "other_class": "0xef3a0f33",
+          "offset": 1280,
+          "bitmask": 0,
+          "value_type": "Link",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x62ca0ae": {
+          "other_class": "0x62ca0ae",
+          "offset": 264,
+          "bitmask": 0,
+          "value_type": "Pointer",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x660c8b4e": {
+          "other_class": null,
+          "offset": 232,
+          "bitmask": 0,
+          "value_type": "List",
+          "container": {
+            "vtable": "0x2664f70",
+            "value_type": "String",
+            "value_size": 16,
+            "fixed_size": null,
+            "storage": "UnknownVector"
+          },
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x68f2b69c": {
+          "other_class": "0x68f2b69c",
+          "offset": 128,
+          "bitmask": 0,
+          "value_type": "Embed",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x7d564f9a": {
+          "other_class": "0x7d564f9a",
+          "offset": 248,
+          "bitmask": 0,
+          "value_type": "Map",
+          "container": null,
+          "map": {
+            "vtable": "0x2669aa0",
+            "key_type": "String",
+            "value_type": "Embed",
+            "storage": "UnknownMap"
+          },
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x81169a8b": {
+          "other_class": "0x81169a8b",
+          "offset": 1328,
+          "bitmask": 0,
+          "value_type": "Embed",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x82725f30": {
+          "other_class": "0xef3a0f33",
+          "offset": 1288,
+          "bitmask": 0,
+          "value_type": "List",
+          "container": {
+            "vtable": "0x2669da0",
+            "value_type": "Link",
+            "value_size": 8,
+            "fixed_size": null,
+            "storage": "UnknownVector"
+          },
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x84186f3c": {
+          "other_class": "0x33068165",
+          "offset": 904,
+          "bitmask": 0,
+          "value_type": "List",
+          "container": {
+            "vtable": "0x2669b98",
+            "value_type": "Embed",
+            "value_size": 80,
+            "fixed_size": null,
+            "storage": "UnknownVector"
+          },
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x87225880": {
+          "other_class": null,
+          "offset": 32,
+          "bitmask": 0,
+          "value_type": "U32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x87b1d303": {
+          "other_class": "0x67ac9672",
+          "offset": 1304,
+          "bitmask": 0,
+          "value_type": "List2",
+          "container": {
+            "vtable": "0x2669e08",
+            "value_type": "Pointer",
+            "value_size": 8,
+            "fixed_size": null,
+            "storage": "UnknownVector"
+          },
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x89aff69": {
+          "other_class": null,
+          "offset": 992,
+          "bitmask": 0,
+          "value_type": "File",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x8ce04c3d": {
+          "other_class": null,
+          "offset": 1088,
+          "bitmask": 0,
+          "value_type": "Map",
+          "container": null,
+          "map": {
+            "vtable": "0x2669480",
+            "key_type": "Hash",
+            "value_type": "File",
+            "storage": "UnknownMap"
+          },
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x8f7b194f": {
+          "other_class": "0x8f7b194f",
+          "offset": 368,
+          "bitmask": 0,
+          "value_type": "Embed",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x939e7b29": {
+          "other_class": null,
+          "offset": 88,
+          "bitmask": 0,
+          "value_type": "String",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x97f7188d": {
+          "other_class": "0xd06263ff",
+          "offset": 296,
+          "bitmask": 0,
+          "value_type": "Embed",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0x9cf5d363": {
+          "other_class": null,
+          "offset": 48,
+          "bitmask": 0,
+          "value_type": "String",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xa5f167ec": {
+          "other_class": null,
+          "offset": 1104,
+          "bitmask": 0,
+          "value_type": "Map",
+          "container": null,
+          "map": {
+            "vtable": "0x2669480",
+            "key_type": "Hash",
+            "value_type": "File",
+            "storage": "UnknownMap"
+          },
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xac473fef": {
+          "other_class": null,
+          "offset": 1024,
+          "bitmask": 0,
+          "value_type": "Option",
+          "container": {
+            "vtable": "0x2669c00",
+            "value_type": "File",
+            "value_size": 8,
+            "fixed_size": null,
+            "storage": null
+          },
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xad74545b": {
+          "other_class": null,
+          "offset": 272,
+          "bitmask": 0,
+          "value_type": "U8",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xb3315a82": {
+          "other_class": null,
+          "offset": 1072,
+          "bitmask": 0,
+          "value_type": "List",
+          "container": {
+            "vtable": "0x2669c68",
+            "value_type": "File",
+            "value_size": 8,
+            "fixed_size": null,
+            "storage": "UnknownVector"
+          },
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xb67a2dd8": {
+          "other_class": "0x9c1d99c0",
+          "offset": 1128,
+          "bitmask": 0,
+          "value_type": "List",
+          "container": {
+            "vtable": "0x2669cd0",
+            "value_type": "Embed",
+            "value_size": 80,
+            "fixed_size": null,
+            "storage": "UnknownVector"
+          },
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xb698fb27": {
+          "other_class": "0x7ba9ed2e",
+          "offset": 968,
+          "bitmask": 0,
+          "value_type": "List",
+          "container": {
+            "vtable": "0x2669d38",
+            "value_type": "Embed",
+            "value_size": 16,
+            "fixed_size": null,
+            "storage": "UnknownVector"
+          },
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xb82a29c2": {
+          "other_class": null,
+          "offset": 952,
+          "bitmask": 0,
+          "value_type": "String",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xbc8eefad": {
+          "other_class": "0xd06263ff",
+          "offset": 320,
+          "bitmask": 0,
+          "value_type": "Embed",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xbf8e9bae": {
+          "other_class": null,
+          "offset": 1368,
+          "bitmask": 0,
+          "value_type": "I32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xc3a944e7": {
+          "other_class": "0x2f910682",
+          "offset": 40,
+          "bitmask": 0,
+          "value_type": "Pointer",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xd8f64a0d": {
+          "other_class": "0xcf313c24",
+          "offset": 1224,
+          "bitmask": 0,
+          "value_type": "Link",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xe02ae791": {
+          "other_class": null,
+          "offset": 104,
+          "bitmask": 0,
+          "value_type": "Bool",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xe431b198": {
+          "other_class": "0x49e67dec",
+          "offset": 1120,
+          "bitmask": 0,
+          "value_type": "Pointer",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xe484edc4": {
+          "other_class": "0x48f3fe52",
+          "offset": 984,
+          "bitmask": 0,
+          "value_type": "Link",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xe67284f4": {
+          "other_class": null,
+          "offset": 1008,
+          "bitmask": 0,
+          "value_type": "Option",
+          "container": {
+            "vtable": "0x2669c00",
+            "value_type": "File",
+            "value_size": 8,
+            "fixed_size": null,
+            "storage": null
+          },
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xe862b379": {
+          "other_class": null,
+          "offset": 1252,
+          "bitmask": 0,
+          "value_type": "F32",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xeda7817e": {
+          "other_class": "0xff9d3409",
+          "offset": 360,
+          "bitmask": 0,
+          "value_type": "Link",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xf0f7a695": {
+          "other_class": null,
+          "offset": 112,
+          "bitmask": 0,
+          "value_type": "Hash",
+          "container": null,
+          "map": null,
+          "hasher": "0x2664680",
+          "unkptr": "0x0"
+        },
+        "0xf587c10c": {
+          "other_class": null,
+          "offset": 936,
+          "bitmask": 0,
+          "value_type": "String",
+          "container": null,
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        },
+        "0xffdf3bd9": {
+          "other_class": null,
+          "offset": 1040,
+          "bitmask": 0,
+          "value_type": "Option",
+          "container": {
+            "vtable": "0x2669c00",
+            "value_type": "File",
+            "value_size": 8,
+            "fixed_size": null,
+            "storage": null
+          },
+          "map": null,
+          "hasher": null,
+          "unkptr": "0x0"
+        }
+      }
+    }
+  }
+}

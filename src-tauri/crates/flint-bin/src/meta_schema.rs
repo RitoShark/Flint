@@ -198,6 +198,42 @@ pub fn declared_type(value: &BinValue) -> String {
     }
 }
 impl Schema {
+    /// Retype only explicitly generated fields, preserving their order and values.
+    /// Unlike diagnostics, generation must reject missing definitions and unsafe conversions.
+    pub fn adapt_entry(&self, entry: &mut crate::BinEntry) -> Result<(), String> {
+        let mut fields = entry.fields.clone();
+        self.adapt_fields(entry.class_hash, &mut fields)?;
+        entry.fields = fields;
+        Ok(())
+    }
+
+    fn adapt_fields(&self, class: u32, fields: &mut IndexMap<u32, BinValue>) -> Result<(), String> {
+        for (&field, value) in fields {
+            let expected = self.expected(class, field).ok_or_else(|| format!(
+                "Metadata {} has no definition for 0x{class:08x}.0x{field:08x}", self.version
+            ))?;
+            adapt_value(value, expected).map_err(|e| format!(
+                "Metadata {}: 0x{class:08x}.0x{field:08x}: {e}", self.version
+            ))?;
+            self.adapt_children(value)?;
+        }
+        Ok(())
+    }
+
+    fn adapt_children(&self, value: &mut BinValue) -> Result<(), String> {
+        match value {
+            BinValue::Pointer { class, fields } | BinValue::Embed { class, fields } => self.adapt_fields(*class, fields)?,
+            BinValue::List { items, .. } => for value in items { self.adapt_children(value)?; },
+            BinValue::Option { value: Some(value), .. } => self.adapt_children(value)?,
+            BinValue::Map { entries, .. } => for (key, value) in entries {
+                self.adapt_children(key)?;
+                self.adapt_children(value)?;
+            },
+            _ => {}
+        }
+        Ok(())
+    }
+
     pub fn parse(bytes: &[u8]) -> Result<Self, String> {
         let dump: Dump = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
         // v3 adds hasher metadata; property/container type tags retain their v2 layout.
@@ -343,10 +379,94 @@ pub fn current() -> Option<Arc<Schema>> {
     CURRENT.read().clone()
 }
 
+/// Safe conversions for generated presets. Never truncate numbers or reinterpret hashes.
+fn adapt_value(value: &mut BinValue, expected: &str) -> Result<(), String> {
+    let got = declared_type(value);
+    if got == expected { return Ok(()); }
+    if let BinValue::String(path) = value {
+        if expected == "file" {
+            *value = BinValue::File(ritoshark::hash::xxh64(path));
+            return Ok(());
+        }
+    }
+    let number = match value {
+        BinValue::U8(v) => Some(*v as i128), BinValue::U16(v) => Some(*v as i128),
+        BinValue::U32(v) => Some(*v as i128), BinValue::U64(v) => Some(*v as i128),
+        BinValue::I8(v) => Some(*v as i128), BinValue::I16(v) => Some(*v as i128),
+        BinValue::I32(v) => Some(*v as i128), BinValue::I64(v) => Some(*v as i128),
+        _ => None,
+    };
+    if let (Some(n), Some((low, high))) = (number, int_range(expected)) {
+        if n >= low && n <= high {
+            *value = match expected {
+                "u8" => BinValue::U8(n as u8), "u16" => BinValue::U16(n as u16),
+                "u32" => BinValue::U32(n as u32), "u64" => BinValue::U64(n as u64),
+                "i8" => BinValue::I8(n as i8), "i16" => BinValue::I16(n as i16),
+                "i32" => BinValue::I32(n as i32), "i64" => BinValue::I64(n as i64),
+                _ => unreachable!(),
+            };
+            return Ok(());
+        }
+    }
+    let (container, items) = shell(expected);
+    if let BinValue::List { is_list2, item, items: values } = value {
+        if matches!(container, "list" | "list2") && items.len() == 1 {
+            // Element declarations with different payloads require explicit conversion.
+            let target = match items[0] {
+                "file" => BinType::File,
+                name if name == format!("{item:?}").to_ascii_lowercase() => *item,
+                _ => return Err(format!("Cannot safely convert `{got}` to `{expected}`")),
+            };
+            for value in values { adapt_value(value, items[0])?; }
+            *item = target;
+            *is_list2 = container == "list2";
+            return Ok(());
+        }
+    }
+    Err(format!("Cannot safely convert `{got}` to `{expected}`"))
+}
+
+/// Current downloaded definitions, or the published subset shipped for offline generation.
+pub fn generation_schema() -> Arc<Schema> {
+    static BUNDLED: std::sync::OnceLock<Arc<Schema>> = std::sync::OnceLock::new();
+    current().unwrap_or_else(|| BUNDLED.get_or_init(|| Arc::new(
+        Schema::parse(include_bytes!("tables/loadscreen_meta_16.18.json"))
+            .expect("bundled loadscreen metadata must be valid")
+    )).clone())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::BinEntry;
+    #[test]
+    fn generation_hashes_asset_paths_but_preserves_literal_strings() {
+        let mut entry = BinEntry {
+            path_hash: 42, class_hash: 3,
+            fields: [(10, BinValue::String("ASSETS/Test.tex".into())),
+                (11, BinValue::String("UI_Secondary_Texture".into()))].into_iter().collect(),
+        };
+        fixture().adapt_entry(&mut entry).unwrap();
+        assert!(matches!(entry.fields[&10], BinValue::File(h) if h == ritoshark::hash::xxh64("ASSETS/Test.tex")));
+        assert!(matches!(&entry.fields[&11], BinValue::String(s) if s == "UI_Secondary_Texture"));
+        assert_eq!(entry.fields.keys().copied().collect::<Vec<_>>(), vec![10, 11]);
+    }
+
+    #[test]
+    fn generation_is_atomic_and_checks_numeric_bounds() {
+        let schema = numeric_fixture();
+        let mut entry = numeric_bin(vec![(0x10, BinValue::U32(7)), (0x11, BinValue::U8(3))]).entries.remove(0);
+        schema.adapt_entry(&mut entry).unwrap();
+        assert!(matches!(entry.fields[&0x10], BinValue::U8(7)));
+        assert!(matches!(entry.fields[&0x11], BinValue::U32(3)));
+        entry.fields.insert(0x10, BinValue::U32(300));
+        assert!(schema.adapt_entry(&mut entry).is_err());
+        assert!(matches!(entry.fields[&0x10], BinValue::U32(300)));
+        entry.fields.insert(0x10, BinValue::U32(7));
+        entry.fields.insert(0xffff, BinValue::Bool(true));
+        assert!(schema.adapt_entry(&mut entry).is_err());
+        assert!(matches!(entry.fields[&0x10], BinValue::U32(7)));
+    }
     fn fixture() -> Schema {
         Schema::parse(br#"{"formatVersion":3,"version":"test-build","classes":{
             "0x1":{"properties":{"0xa":{"value_type":"File"},"0xb":{"value_type":"String"}}},

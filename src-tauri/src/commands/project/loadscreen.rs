@@ -17,6 +17,7 @@ pub async fn create_loading_screen_project(
     request: tauri::ipc::Request<'_>,
     app: tauri::AppHandle,
 ) -> Result<tauri::ipc::Response, String> {
+    crate::commands::bin::meta_schema::refresh(&app).await;
     let body_bytes: &[u8] = match request.body() {
         tauri::ipc::InvokeBody::Raw(bytes) => bytes.as_slice(),
         tauri::ipc::InvokeBody::Json(_) => {
@@ -255,9 +256,11 @@ pub async fn create_loading_screen_project(
 /// with the existing spritesheet params (fixing UV along the way).
 #[tauri::command]
 pub async fn rebuild_loading_screen_bin(
+    app: tauri::AppHandle,
     project_path: String,
     league_path: String,
 ) -> Result<(), String> {
+    crate::commands::bin::meta_schema::refresh(&app).await;
     let _t = ipc_trace::enter("rebuild_loading_screen_bin");
     tracing::info!("Rebuilding loading screen bin for: {}", project_path);
 
@@ -335,4 +338,3 @@ pub async fn rebuild_loading_screen_bin(
     tracing::info!("Successfully rebuilt loading screen bin for: {}", project_path);
     Ok(())
 }
-

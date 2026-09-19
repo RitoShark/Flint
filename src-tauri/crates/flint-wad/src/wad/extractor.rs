@@ -11,6 +11,33 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+/// Project creation's audio choices, applied before decompressing or walking assets.
+#[derive(Debug, Clone, Copy)]
+pub struct AudioExtraction {
+    pub sfx: bool,
+    pub vo: bool,
+}
+
+impl AudioExtraction {
+    pub const ALL: Self = Self { sfx: true, vo: true };
+
+    pub fn includes_path(self, path: &str) -> bool {
+        let path = path.to_ascii_lowercase().replace('\\', "/");
+        let is_audio = path.starts_with("assets/sounds/")
+            || path.starts_with("data/sounds/")
+            || path.split('/').any(|part| part == "audio" || part == "sounds")
+            || [".bnk", ".wpk", ".wem"].iter().any(|ext| path.ends_with(ext));
+        if !is_audio {
+            return true;
+        }
+        if path.split('/').any(|part| part == "vo") {
+            self.vo
+        } else {
+            self.sfx
+        }
+    }
+}
+
 /// Map a ritoshark [`FileKind`] to the extension Flint appends to extension-less
 /// chunks. `None` means "no known extension" → caller writes a bare `.ltk`.
 fn file_kind_extension(kind: FileKind) -> Option<&'static str> {
@@ -297,7 +324,7 @@ pub fn find_voiceover_wads(league_path: impl AsRef<Path>, champion: &str) -> Vec
     out
 }
 
-/// Extract ALL files under `assets/` or `data/` from a WAD archive. Cleanup of
+/// Extract files under `assets/` or `data/`, respecting the audio selection. Cleanup of
 /// unused files happens later during the repathing phase based on what the skin
 /// BIN references.
 pub fn extract_skin_assets(
@@ -307,6 +334,7 @@ pub fn extract_skin_assets(
     _skin_id: u32,
     resolve_paths: impl Fn(&[u64]) -> ResolvedHashes,
     is_tft: bool,
+    audio: AudioExtraction,
 ) -> Result<ExtractionResult> {
     let wad_path   = wad_path.as_ref();
     let output_dir = output_dir.as_ref();
@@ -350,6 +378,10 @@ pub fn extract_skin_assets(
             .unwrap_or_else(|| format!("{:016x}", path_hash));
         let path_lower   = resolved.to_lowercase();
         let is_unresolved = resolved.chars().all(|c| c.is_ascii_hexdigit());
+
+        if !audio.includes_path(&path_lower) {
+            continue;
+        }
 
         if !path_lower.starts_with("assets/") && !path_lower.starts_with("data/") {
             if is_unresolved { skipped_unknown += 1; }
@@ -598,6 +630,7 @@ pub fn extract_skin_assets_selective(
     skin_id: u32,
     resolve_paths: impl Fn(&[u64]) -> ResolvedHashes,
     is_tft: bool,
+    audio: AudioExtraction,
 ) -> Result<ExtractionResult> {
     let wad_path = wad_path.as_ref();
     let output_dir = output_dir.as_ref();
@@ -685,6 +718,9 @@ pub fn extract_skin_assets_selective(
     let mut bins_failed: usize = 0;
 
     while let Some(bin_path) = queue.pop_front() {
+        if !audio.includes_path(&bin_path) {
+            continue;
+        }
         let h = xx(&bin_path);
         let chunk = match by_hash.get(&h) {
             Some(c) => *c,
@@ -729,6 +765,9 @@ pub fn extract_skin_assets_selective(
             }
         }
         for p in paths_found {
+            if !audio.includes_path(&p) {
+                continue;
+            }
             if p.ends_with(".bin") {
                 if bin_seen.insert(p.clone()) {
                     queue.push_back(p);
@@ -741,6 +780,9 @@ pub fn extract_skin_assets_selective(
             let known = flint_hash::hash::get_cached_bin_hashes().read();
             if let Some(p) = known.get(h) {
                 let p_norm = p.to_lowercase().replace('\\', "/");
+                if !audio.includes_path(&p_norm) {
+                    continue;
+                }
                 if p_norm.ends_with(".bin") {
                     if bin_seen.insert(p_norm.clone()) {
                         queue.push_back(p_norm);
@@ -955,6 +997,90 @@ pub fn resolve_wad_paths(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn audio_choices_are_independent_and_case_insensitive() {
+        let sfx = "ASSETS\\Sounds\\Wwise2016\\SFX\\test.bnk";
+        let vo = "assets/sounds/wwise2016/vo/en_us/test.wpk";
+        for sfx_enabled in [false, true] {
+            for vo_enabled in [false, true] {
+                let audio = AudioExtraction { sfx: sfx_enabled, vo: vo_enabled };
+                assert_eq!(audio.includes_path(sfx), sfx_enabled);
+                assert_eq!(audio.includes_path("data/sounds/test.bin"), sfx_enabled);
+                assert_eq!(audio.includes_path("assets/custom/test.wem"), sfx_enabled);
+                assert_eq!(audio.includes_path(vo), vo_enabled);
+                assert!(audio.includes_path("assets/characters/test/skins/base/body.tex"));
+            }
+        }
+    }
+
+    #[test]
+    fn disabled_sfx_is_not_extracted_or_walked_in_either_extraction_mode() {
+        use ritoshark::bin::{Bin, BinEntry};
+        use ritoshark::wad::WadBuilder;
+        let dir = tempfile::tempdir().unwrap();
+        let seed = "data/characters/audiotest/skins/skin0.bin";
+        let sound_bin = "data/sounds/sfx/audiotest.bin";
+        let bank = "assets/sounds/wwise2016/sfx/audiotest.bnk";
+        let hashed_bank = "assets/sounds/wwise2016/sfx/audiotest-hashed.bnk";
+        let texture = "assets/characters/audiotest/body.tex";
+        let audio_only_texture = "assets/characters/audiotest/audio-only.tex";
+        let hash = ritoshark::hash::xxh64;
+        flint_hash::hash::get_cached_bin_hashes().write().insert(hash(hashed_bank), hashed_bank);
+        let make_bin = |values: Vec<BinValue>, linked: Vec<String>| {
+            let mut bin = Bin::new();
+            bin.linked = linked;
+            bin.entries.push(BinEntry {
+                path_hash: 1, class_hash: 2,
+                fields: values.into_iter().enumerate().map(|(i, v)| (i as u32, v)).collect(),
+            });
+            flint_bin::write_bin(&bin).unwrap()
+        };
+        let files = [
+            (seed, make_bin(vec![BinValue::String(bank.into()), BinValue::File(hash(hashed_bank)),
+                BinValue::String(texture.into())], vec![sound_bin.into()])),
+            (sound_bin, make_bin(vec![BinValue::String(audio_only_texture.into())], vec![])),
+            (bank, b"BKHD".to_vec()), (hashed_bank, b"BKHD".to_vec()),
+            (texture, b"TEX\0".to_vec()), (audio_only_texture, b"TEX\0".to_vec()),
+        ];
+        let mut builder = WadBuilder::new();
+        for (path, _) in &files { builder.add_chunk(path); }
+        let bytes = builder.build_to_bytes(|h, out| {
+            out.write_all(&files.iter().find(|(p, _)| hash(p) == h).unwrap().1).unwrap();
+            Ok(())
+        }).unwrap();
+        let wad_path = dir.path().join("test.wad.client");
+        fs::write(&wad_path, bytes).unwrap();
+        let resolve = |hashes: &[u64]| {
+            let mut names = ResolvedHashes::new();
+            for (path, _) in &files {
+                if hashes.contains(&hash(path)) { names.insert(hash(path), path); }
+            }
+            names
+        };
+        for selective in [false, true] {
+            for enabled in [false, true] {
+                let output = dir.path().join(format!("{selective}-{enabled}"));
+                let audio = AudioExtraction { sfx: enabled, vo: false };
+                if selective {
+                    extract_skin_assets_selective(&wad_path, &output, "audiotest", 0, &resolve, false, audio).unwrap();
+                } else {
+                    extract_skin_assets(&wad_path, &output, "audiotest", 0, &resolve, false, audio).unwrap();
+                }
+                let root = output.join("audiotest.wad.client");
+                assert!(root.join(seed).exists());
+                assert!(root.join(texture).exists());
+                for path in [sound_bin, bank, hashed_bank] {
+                    assert_eq!(root.join(path).exists(), enabled, "{path}, selective={selective}");
+                }
+                if selective {
+                    assert_eq!(root.join(audio_only_texture).exists(), enabled, "excluded audio BIN must not be walked");
+                }
+                let seed_bin = flint_bin::read_bin(&fs::read(root.join(seed)).unwrap()).unwrap();
+                assert_eq!(seed_bin.linked, vec![sound_bin]);
+            }
+        }
+    }
 
     #[test]
     fn wad_name_strips_only_the_jade_prefix() {

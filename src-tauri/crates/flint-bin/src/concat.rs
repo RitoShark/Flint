@@ -337,7 +337,14 @@ pub fn concatenate_linked_bins(
 
     tracing::info!("Created concat BIN: {}", result.concat_path);
 
-    update_main_bin_links(&mut main_bin, result.concat_path.clone())?;
+    // Missing sources (including audio intentionally excluded at creation)
+    // must keep their stock links so the game can load them from its own WADs.
+    main_bin.linked.retain(|path| {
+        let normalized = path.to_lowercase().replace('\\', "/");
+        let actual = path_mappings.get(&normalized).unwrap_or(&normalized);
+        !result.source_paths.contains(actual)
+    });
+    main_bin.linked.insert(0, result.concat_path.clone());
     let updated_data = write_bin(&main_bin)
         .map_err(|e| Error::InvalidInput(format!("Failed to write updated BIN: {}", e)))?;
     fs::write(main_bin_path, updated_data).map_err(|e| Error::io_with_path(e, main_bin_path))?;
@@ -349,6 +356,23 @@ pub fn concatenate_linked_bins(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn concatenation_keeps_stock_links_to_excluded_audio() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = "data/test/vfx.bin";
+        let sound = "data/sounds/sfx/test.bin";
+        let mut main = Bin::new();
+        main.linked = vec![source.into(), sound.into()];
+        let main_path = dir.path().join("skin0.bin");
+        fs::write(&main_path, write_bin(&main).unwrap()).unwrap();
+        fs::create_dir_all(dir.path().join("data/test")).unwrap();
+        fs::write(dir.path().join(source), write_bin(&Bin::new()).unwrap()).unwrap();
+        let result = concatenate_linked_bins(&main_path, "Project", "Creator", "test", dir.path(), &HashMap::new()).unwrap();
+        assert_eq!(result.source_count, 1);
+        let updated = read_bin(&fs::read(main_path).unwrap()).unwrap();
+        assert_eq!(updated.linked, vec![result.concat_path, sound.into()]);
+    }
 
     #[test]
     fn test_classify_bin_champion_root() {

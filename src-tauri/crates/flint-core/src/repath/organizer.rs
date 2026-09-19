@@ -443,6 +443,7 @@ mod tests {
             let resolve = |_h: &[u64]| flint_hash::hash::ResolvedHashes::new();
             let r = crate::wad::extractor::extract_skin_assets_selective(
                 &wad, &assets, champ, skin_id, &resolve, false,
+                crate::wad::extractor::AudioExtraction::ALL,
             )
             .unwrap();
 

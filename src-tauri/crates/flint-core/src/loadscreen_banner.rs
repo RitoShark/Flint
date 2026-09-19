@@ -118,9 +118,8 @@ fn switch_on(name: &str) -> BinValue {
 
 /// The single sampler entry — points at the painted mask `.tex`.
 ///
-/// LANDMINE: `texturePath` is `file` (xxh64 of the path), NOT `string`. Riot
-/// retyped the asset-reference fields; a string here is a texture the current
-/// client silently never loads.
+/// Keep the path until metadata adaptation so it can be encoded using the
+/// declared type (`file` / xxh64 in current builds).
 fn sampler(mask_asset_path: &str) -> BinValue {
     BinValue::Embed {
         class: fnv1a_32("StaticMaterialShaderSamplerDef"),
@@ -128,7 +127,7 @@ fn sampler(mask_asset_path: &str) -> BinValue {
             prop("TextureName", BinValue::String("UI_Secondary_Texture".to_string())),
             prop(
                 "texturePath",
-                BinValue::File(ritoshark::hash::xxh64(mask_asset_path)),
+                BinValue::String(mask_asset_path.to_string()),
             ),
             prop("addressW", BinValue::U32(1)),
         ]
@@ -271,7 +270,7 @@ pub fn build_material_entry(
     material_name: &str,
     mask_asset_path: &str,
     params: &BannerParams,
-) -> BinEntry {
+) -> Result<BinEntry, String> {
     let fields: IndexMap<u32, BinValue> = vec![
         prop("name", BinValue::String(material_name.to_string())),
         prop("type", BinValue::U32(3)),
@@ -311,11 +310,13 @@ pub fn build_material_entry(
     .into_iter()
     .collect();
 
-    BinEntry {
+    let mut entry = BinEntry {
         path_hash: fnv1a_32(material_name),
         class_hash: fnv1a_32("StaticMaterialDef"),
         fields,
-    }
+    };
+    flint_bin::meta_schema::generation_schema().adapt_entry(&mut entry)?;
+    Ok(entry)
 }
 
 /// Class hash of `SkinCharacterDataProperties` — the root entry that owns the
@@ -461,6 +462,16 @@ pub fn apply_banner_to_bin(
         "No SkinCharacterDataProperties entry found in the main skin BIN — cannot attach a loadscreen banner.".to_string()
     })?;
 
+    // Validate everything before mutating the caller's skin BIN.
+    let schema = flint_bin::meta_schema::generation_schema();
+    let new_entry = build_material_entry(material_name, mask_asset_path, params)?;
+    let mut attachment = BinEntry {
+        path_hash: bin.entries[skin_idx].path_hash,
+        class_hash: skin_character_class_hash(),
+        fields: [(LOADSCREEN_MATERIAL_FIELD, BinValue::Link(material_hash))].into_iter().collect(),
+    };
+    schema.adapt_entry(&mut attachment)?;
+
     // Link the loadscreen field right after the LAST loadscreen-variant block,
     // so it lands before skinAudioProperties.
     {
@@ -475,7 +486,6 @@ pub fn apply_banner_to_bin(
         }
     }
 
-    let new_entry = build_material_entry(material_name, mask_asset_path, params);
     if let Some(existing) = bin
         .entries
         .iter_mut()
@@ -583,7 +593,7 @@ mod tests {
 
     #[test]
     fn enabled_switches_omit_the_on_field() {
-        let entry = build_material_entry("X/Y/Materials/Z", "ASSETS/a-mask.tex", &BannerParams::default());
+        let entry = build_material_entry("X/Y/Materials/Z", "ASSETS/a-mask.tex", &BannerParams::default()).unwrap();
         let states = switch_states(&entry);
 
         for (name, on) in &states {
@@ -617,7 +627,7 @@ mod tests {
 
     #[test]
     fn switch_and_param_lists_match_the_riot_reference_shape() {
-        let entry = build_material_entry("X/Y/Materials/Z", "ASSETS/a-mask.tex", &BannerParams::default());
+        let entry = build_material_entry("X/Y/Materials/Z", "ASSETS/a-mask.tex", &BannerParams::default()).unwrap();
         assert_eq!(switch_states(&entry).len(), 22);
 
         let Some(BinValue::List { items, .. }) = entry.fields.get(&fnv1a_32("paramValues")) else {
@@ -730,6 +740,10 @@ mod tests {
 
         let out1 = apply_banner_to_bin(&mut bin, &name, &mask, &params).unwrap();
         let entries_after_first = bin.entries.len();
+        let encoded = flint_bin::write_bin(&bin).unwrap();
+        let decoded = flint_bin::read_bin(&encoded).unwrap();
+        let material = decoded.entries.iter().find(|e| e.path_hash == out1.material_hash).unwrap();
+        assert!(matches!(material.fields.get(&fnv1a_32("type")), Some(BinValue::U8(3))));
 
         // Skin entry + one material entry. Flint writes no name record.
         assert_eq!(entries_after_first, 2);

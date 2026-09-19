@@ -23,12 +23,16 @@ const RELEASE_API_URL: &str =
 const META_FILE_NAME: &str = "hashes-meta.json";
 const USER_AGENT: &str = "flint-hash-manager";
 
+// Startup and settings share staging paths and metadata.
+static UPDATE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 /// How long a successful release check stays valid before startup asks GitHub
 /// again. Upstream (`lmdb-hashes`) rebuilds every 6 hours, so this matches the
 /// fastest rate at which a new tag can appear.
 const CHECK_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 
 struct Asset {
+    db_name: &'static str,
     /// Release asset filename, e.g. `lol-hashes-wad.zst`.
     release_name: &'static str,
     /// LMDB directory name under the hash dir, e.g. `hashes-wad.lmdb`.
@@ -38,8 +42,8 @@ struct Asset {
 }
 
 const ASSETS: &[Asset] = &[
-    Asset { release_name: "lol-hashes-wad.zst", lmdb_dir: "hashes-wad.lmdb", label: "WAD hashes" },
-    Asset { release_name: "lol-hashes-bin.zst", lmdb_dir: "hashes-bin.lmdb", label: "BIN hashes" },
+    Asset { db_name: "wad", release_name: "lol-hashes-wad.zst", lmdb_dir: "hashes-wad.lmdb", label: "WAD hashes" },
+    Asset { db_name: "bin", release_name: "lol-hashes-bin.zst", lmdb_dir: "hashes-bin.lmdb", label: "BIN hashes" },
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,17 +97,15 @@ pub fn hashes_present(hash_dir: &Path) -> bool {
 /// Download hash databases from `lmdb-hashes` GitHub releases.
 ///
 /// # Behaviour
-/// - If `force == false` and both LMDB `data.mdb` files are already on disk,
-///   returns immediately without touching the network — this is the common
-///   case on every startup after the first.
+/// - If `force == false`, both databases exist, and the last successful check
+///   was recent, returns without touching the network.
 /// - Otherwise hits `releases/latest` to discover the current tag, then
 ///   downloads any missing assets (or re-downloads all when `force == true`).
 /// - Downloads `.zst` into memory, decompresses to `data.mdb.tmp`, then
-///   atomically renames over `data.mdb`.
+///   imports it in an LMDB write transaction so existing readers stay valid.
 /// - Writes `hashes-meta.json` with the tag + timestamp.
 ///
-/// Re-checking for a newer tag only happens when the user explicitly clicks
-/// "Reload hashes" (`reload_hashes` / `force_rebuild_hashes` commands).
+/// Explicit reloads bypass the check interval.
 pub async fn download_hashes(output_dir: impl AsRef<Path>, force: bool) -> Result<DownloadStats> {
     download_hashes_inner(output_dir.as_ref(), force, force).await
 }
@@ -122,7 +124,7 @@ async fn download_hashes_inner(
     force: bool,
     skip_interval: bool,
 ) -> Result<DownloadStats> {
-
+    let _update = UPDATE_LOCK.lock().await;
     tracing::debug!("Hash dir: {}", output_dir.display());
     fs::create_dir_all(output_dir).await.map_err(|e| {
         tracing::error!("Failed to create hash dir '{}': {}", output_dir.display(), e);
@@ -204,13 +206,19 @@ async fn download_hashes_inner(
     }
 
     if stats.errors == 0 && !staged.is_empty() {
-        crate::hash::lmdb_cache::drop_lmdb_cache();
         for (asset, tmp_path) in &staged {
             let lmdb_dir = output_dir.join(asset.lmdb_dir);
-            let data_mdb = lmdb_dir.join("data.mdb");
-            let _ = fs::remove_file(lmdb_dir.join("lock.mdb")).await;
-            match replace_data_mdb(tmp_path, &data_mdb).await {
+            let source = tmp_path.clone();
+            let name = asset.db_name;
+            let installed = tokio::task::spawn_blocking(move || {
+                crate::hash::lmdb_cache::install_database(&source, &lmdb_dir, name)
+                    .map_err(|e| Error::Hash(format!("Failed to install {} hashes: {}", name, e)))
+            })
+            .await
+            .map_err(|e| Error::Hash(format!("Hash install task failed: {}", e)))?;
+            match installed {
                 Ok(()) => {
+                    let _ = fs::remove_file(tmp_path).await;
                     tracing::info!("Installed {} (tag {})", asset.label, latest_tag);
                     stats.downloaded += 1;
                 }
@@ -368,47 +376,6 @@ async fn download_and_stage(
     drop(f);
     Ok(tmp_path)
 }
-
-
-/// Replace `data.mdb` with the freshly downloaded `data.mdb.tmp`.
-///
-/// Retries the delete+rename for a few hundred ms: on Windows the old file can
-/// still be memory-mapped for a moment after `drop_lmdb_cache`, and a failure
-/// here MUST surface — a swallowed error leaves the stale DB on disk while the
-/// meta file records the new tag, so every later run thinks it is up to date
-/// and paths silently keep showing as raw hashes.
-async fn replace_data_mdb(tmp_path: &Path, data_mdb: &Path) -> Result<()> {
-    const ATTEMPTS: u32 = 10;
-    let mut last_err: Option<std::io::Error> = None;
-
-    for attempt in 0..ATTEMPTS {
-        if data_mdb.exists() {
-            if let Err(e) = fs::remove_file(data_mdb).await {
-                last_err = Some(e);
-                tokio::time::sleep(Duration::from_millis(50 * (attempt as u64 + 1))).await;
-                continue;
-            }
-        }
-
-        match fs::rename(tmp_path, data_mdb).await {
-            Ok(()) => return Ok(()),
-            Err(e) => {
-                last_err = Some(e);
-                tokio::time::sleep(Duration::from_millis(50 * (attempt as u64 + 1))).await;
-            }
-        }
-    }
-
-    Err(Error::Hash(format!(
-        "Failed to install {} after {} attempts (file still locked — close anything using the hash DB): {}",
-        data_mdb.display(),
-        ATTEMPTS,
-        last_err
-            .map(|e| e.to_string())
-            .unwrap_or_else(|| "unknown error".to_string()),
-    )))
-}
-
 async fn read_meta(hash_dir: &Path) -> HashesMeta {
     let path = hash_dir.join(META_FILE_NAME);
     let Ok(data) = fs::read_to_string(&path).await else {

@@ -334,6 +334,12 @@ fn plan_destinations(
     let mut collided = Vec::new();
 
     for source in sources {
+        if !(crate::wad::extractor::AudioExtraction {
+            sfx: config.repath_sfx,
+            vo: config.repath_vo,
+        }).includes_path(source) {
+            continue;
+        }
         let repathed = apply_prefix_to_path(source, prefix, config);
         let mut candidate = replace_base_folder_in_animation_path(&repathed, config.target_skin_id);
         let animation = is_animation(&candidate);
@@ -476,13 +482,25 @@ pub fn repath_project(
         }
     }
 
+    let audio = crate::wad::extractor::AudioExtraction {
+        sfx: config.repath_sfx,
+        vo: config.repath_vo,
+    };
+    bin_files.retain(|path| audio.includes_path(
+        &path.strip_prefix(file_base).unwrap_or(path).to_string_lossy()
+    ));
     tracing::info!("Processing {} BIN files", bin_files.len());
 
     let all_asset_paths_set: DashSet<String> = DashSet::new();
+    let stock_audio_paths: DashSet<String> = DashSet::new();
     bin_files.par_iter().for_each(|bin_path| {
         if let Ok(paths) = scan_bin_for_paths(bin_path) {
             for path in paths {
-                all_asset_paths_set.insert(path);
+                if audio.includes_path(&path) {
+                    all_asset_paths_set.insert(path);
+                } else {
+                    stock_audio_paths.insert(path);
+                }
             }
         }
     });
@@ -541,7 +559,7 @@ pub fn repath_project(
     // Paths referenced ONLY by non-shipping champion-root BINs: never repathed or
     // relocated, and protected from the cleanup passes so they keep overriding the
     // original game paths. Anything a shipped BIN also references repaths normally.
-    let preserved_paths: HashSet<String> = if root_bin_files.is_empty() {
+    let mut preserved_paths: HashSet<String> = if root_bin_files.is_empty() {
         HashSet::new()
     } else {
         let set: DashSet<String> = DashSet::new();
@@ -554,9 +572,11 @@ pub fn repath_project(
         });
         set.into_iter().filter(|p| !all_asset_paths.contains(p)).collect()
     };
+    // Existing/imported stock audio must survive cleanup as well as repathing.
+    preserved_paths.extend(stock_audio_paths);
     if !preserved_paths.is_empty() {
         tracing::info!(
-            "{} asset path(s) referenced only by champion-root BINs kept at their original paths",
+            "{} root-only or disabled-audio asset path(s) kept at their original paths",
             preserved_paths.len()
         );
     }
@@ -1191,6 +1211,41 @@ mod tests {
             repath_sfx: false,
             repath_vo: false,
         };
+
+        // Later layout cleanup must not strip /base/ from excluded bank paths.
+        let bank = "assets/sounds/wwise2016/sfx/characters/kayn/skins/base/kayn.bnk";
+        let custom_bank = "assets/characters/kayn/skins/base/custom.bnk";
+        let paths = [bank.to_string(), custom_bank.to_string()].into_iter().collect();
+        assert!(plan_destinations(&paths, &config.prefix(), &config).dest.is_empty());
+
+        // Repath + cleanup must preserve existing stock audio too, including
+        // custom bank locations which do not live under assets/sounds/.
+        let dir = tempfile::tempdir().unwrap();
+        let wad = dir.path().join("kayn.wad.client");
+        for path in [bank, custom_bank] {
+            let file = wad.join(path);
+            fs::create_dir_all(file.parent().unwrap()).unwrap();
+            fs::write(file, b"BKHD").unwrap();
+        }
+        let skin_path = wad.join("data/characters/kayn/skins/skin20.bin");
+        fs::create_dir_all(skin_path.parent().unwrap()).unwrap();
+        let mut skin = crate::bin::Bin::new();
+        skin.entries.push(crate::bin::BinEntry {
+            path_hash: 1, class_hash: 2,
+            fields: [(1, BinValue::String(bank.into())),
+                (2, BinValue::String(custom_bank.into())),
+                (3, BinValue::File(ritoshark::hash::xxh64(bank)))].into_iter().collect(),
+        });
+        fs::write(&skin_path, write_bin(&skin).unwrap()).unwrap();
+        let outcome = repath_project(dir.path(), &config, &HashMap::new()).unwrap();
+        assert_eq!(outcome.paths_modified, 0);
+        assert_eq!(outcome.files_relocated, 0);
+        assert!(outcome.missing_paths.is_empty());
+        assert!(wad.join(bank).exists());
+        assert!(wad.join(custom_bank).exists());
+        let updated = read_bin(&fs::read(skin_path).unwrap()).unwrap();
+        assert!(matches!(&updated.entries[0].fields[&1], BinValue::String(s) if s == bank));
+        assert!(matches!(updated.entries[0].fields[&3], BinValue::File(h) if h == ritoshark::hash::xxh64(bank)));
 
         assert_eq!(
             apply_prefix_to_path(

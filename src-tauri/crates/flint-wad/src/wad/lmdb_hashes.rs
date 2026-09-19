@@ -10,6 +10,7 @@ use super::extracted_overlay::{bin_overlay, wad_overlay};
 use super::hash_downloader::{detect_layout, HashLayout};
 
 struct EnvCache {
+    revision: u64,
     wad: Option<Arc<heed::Env>>,
     bin: Option<Arc<heed::Env>>,
     layout_root: PathBuf,
@@ -45,6 +46,7 @@ fn open_env(lmdb_dir: &Path) -> Option<Arc<heed::Env>> {
 /// Returns `true` when at least one env was loaded; `false` if neither
 /// layout is present (caller should trigger [`super::download_combined_hashes`]).
 pub fn preload_envs(hash_dir: &Path) -> bool {
+    let revision = flint_hash::hash::lmdb_cache::database_revision();
     let (wad, bin) = match detect_layout(hash_dir) {
         HashLayout::Split => {
             let wad = open_env(&hash_dir.join("hashes-wad.lmdb"));
@@ -64,6 +66,7 @@ pub fn preload_envs(hash_dir: &Path) -> bool {
 
     let mut g = cache_slot().lock();
     *g = Some(EnvCache {
+        revision,
         wad,
         bin,
         layout_root: hash_dir.to_path_buf(),
@@ -73,8 +76,8 @@ pub fn preload_envs(hash_dir: &Path) -> bool {
     true
 }
 
-/// Call this before overwriting `data.mdb` on Windows so the memory map
-/// is released. Next lookup re-opens lazily; the on-disk hash dir is untouched.
+/// Clear cached environments and lookup results. heed and active readers may
+/// still hold mappings; this does not make `data.mdb` safe to overwrite.
 pub fn unload_envs() {
     let mut g = cache_slot().lock();
     *g = None;
@@ -84,7 +87,7 @@ fn ensure_loaded(hash_dir: &Path) -> bool {
     {
         let g = cache_slot().lock();
         if let Some(c) = g.as_ref() {
-            if c.layout_root == hash_dir {
+            if c.layout_root == hash_dir && c.revision == flint_hash::hash::lmdb_cache::database_revision() {
                 return c.wad.is_some() || c.bin.is_some();
             }
         }
@@ -186,6 +189,7 @@ pub fn resolve_wad_bulk(hashes: &[u64], hash_dir: &Path) -> HashMap<u64, String>
 /// Resolve a single BIN name hash (FNV1a u32) via the extracted-name
 /// overlay → cached LMDB.
 pub fn lookup_bin(hash: u32, hash_dir: &Path) -> Option<Arc<str>> {
+    ensure_loaded(hash_dir);
     let overlay = bin_overlay(hash_dir);
     if let Some(p) = overlay.get(&hash) {
         return Some(Arc::clone(p));
@@ -201,6 +205,7 @@ pub fn lookup_bin(hash: u32, hash_dir: &Path) -> Option<Arc<str>> {
     }
 
     let env = clone_bin_env(hash_dir)?;
+    let revision = flint_hash::hash::lmdb_cache::database_revision();
     let result: Option<Arc<str>> = (|| {
         let db = flint_hash::hash::lmdb_cache::cached_db(&env, "bin")?;
         let rtxn = env.read_txn().ok()?;
@@ -210,12 +215,15 @@ pub fn lookup_bin(hash: u32, hash_dir: &Path) -> Option<Arc<str>> {
 
     let g = cache_slot().lock();
     if let Some(c) = g.as_ref() {
-        c.bin_lookups.lock().insert(hash, result.clone());
+        if c.layout_root == hash_dir && c.revision == revision {
+            c.bin_lookups.lock().insert(hash, result.clone());
+        }
     }
     result
 }
 
 pub fn lookup_wad(hash: u64, hash_dir: &Path) -> Option<Arc<str>> {
+    ensure_loaded(hash_dir);
     let overlay = wad_overlay(hash_dir);
     if let Some(p) = overlay.get(&hash) {
         return Some(Arc::clone(p));
@@ -231,6 +239,7 @@ pub fn lookup_wad(hash: u64, hash_dir: &Path) -> Option<Arc<str>> {
     }
 
     let env = clone_wad_env(hash_dir)?;
+    let revision = flint_hash::hash::lmdb_cache::database_revision();
     let result: Option<Arc<str>> = (|| {
         let db = flint_hash::hash::lmdb_cache::cached_db(&env, "wad")?;
         let rtxn = env.read_txn().ok()?;
@@ -240,7 +249,9 @@ pub fn lookup_wad(hash: u64, hash_dir: &Path) -> Option<Arc<str>> {
 
     let g = cache_slot().lock();
     if let Some(c) = g.as_ref() {
-        c.wad_lookups.lock().insert(hash, result.clone());
+        if c.layout_root == hash_dir && c.revision == revision {
+            c.wad_lookups.lock().insert(hash, result.clone());
+        }
     }
     result
 }

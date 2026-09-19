@@ -250,7 +250,7 @@ pub fn inject_animation_block(
         ].into_iter().collect(),
     };
 
-    let anim_entry = BinEntry {
+    let mut anim_entry = BinEntry {
         path_hash: fnv1a_lower(&entry_name),
         class_hash: fnv1a_lower("UiElementEffectAnimationData"),
         fields: vec![
@@ -270,6 +270,7 @@ pub fn inject_animation_block(
         ].into_iter().collect(),
     };
 
+    crate::bin::meta_schema::generation_schema().adapt_entry(&mut anim_entry)?;
     bin.entries.push(anim_entry);
 
     tracing::info!("Animation object inserted ({} objects total), writing binary", bin.entries.len());
@@ -309,6 +310,34 @@ pub struct AnimationParams {
     pub cols: f32,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bin::{Bin, BinValue};
+
+    #[test]
+    fn generated_animation_roundtrips_and_legacy_projects_remain_readable() {
+        let dir = tempfile::tempdir().unwrap();
+        let params = AnimationParams {
+            creator_name: "TestCreator".into(), sheet_width: 1024, sheet_height: 512,
+            fps: 24.0, total_frames: 32.0, cols: 8.0,
+        };
+        let original = crate::bin::write_bin(&Bin::new()).unwrap();
+        inject_animation_block(&original, dir.path(), &params, 128, 128).unwrap();
+        let bytes = std::fs::read(dir.path().join("UI.wad.client/clientstates/loadingscreen/ux/loadingscreenclassic/uibase")).unwrap();
+        let recovered = extract_animation_params_from_bin(&bytes).unwrap();
+        assert_eq!(recovered.creator_name, params.creator_name);
+        assert_eq!((recovered.sheet_width, recovered.sheet_height), (1024, 512));
+        assert_eq!((recovered.fps, recovered.total_frames, recovered.cols), (24.0, 32.0, 8.0));
+        let mut bin = crate::bin::read_bin(&bytes).unwrap();
+        let BinValue::Pointer { fields, .. } = bin.entries[0].fields.get_mut(&fnv1a_lower("TextureData")).unwrap() else { panic!() };
+        assert!(matches!(fields.get(&fnv1a_lower("mTextureName")), Some(BinValue::File(h)) if *h == ritoshark::hash::xxh64(SPRITESHEET_ASSET_PATH)));
+        fields.insert(fnv1a_lower("mTextureName"), BinValue::String(SPRITESHEET_ASSET_PATH.into()));
+        let legacy = crate::bin::write_bin(&bin).unwrap();
+        assert_eq!(extract_animation_params_from_bin(&legacy).unwrap().creator_name, "TestCreator");
+    }
+}
+
 /// Read the existing uibase BIN in the project and extract the animation params
 /// from the injected `UiElementEffectAnimationData` entry.
 pub fn extract_animation_params_from_bin(uibase_bytes: &[u8]) -> Result<AnimationParams, String> {
@@ -330,8 +359,11 @@ pub fn extract_animation_params_from_bin(uibase_bytes: &[u8]) -> Result<Animatio
                 .find(|(h, _)| **h == texture_data_hash)
                 .and_then(|(_, v)| if let BinValue::Pointer { fields, .. } = v { Some(fields) } else { None })
                 .and_then(|fields| fields.iter().find(|(h, _)| **h == texture_name_hash))
-                .and_then(|(_, v)| if let BinValue::String(s) = v { Some(s) } else { None })
-                .is_some_and(|s| s.eq_ignore_ascii_case(SPRITESHEET_ASSET_PATH))
+                .is_some_and(|(_, v)| match v {
+                    BinValue::String(s) => s.eq_ignore_ascii_case(SPRITESHEET_ASSET_PATH),
+                    BinValue::File(h) => *h == ritoshark::hash::xxh64(SPRITESHEET_ASSET_PATH),
+                    _ => false,
+                })
         })
         .ok_or_else(|| "No Flint animated-loadscreen entry found in project uibase. \
                          Is this a loading-screen project?".to_string())?;

@@ -170,10 +170,12 @@ pub async fn get_loadscreen_banner_info(
 
 #[tauri::command]
 pub async fn apply_loadscreen_banner(
+    app: tauri::AppHandle,
     project_path: String,
     params: Option<BannerParamsDto>,
     rebuild_mask: Option<bool>,
 ) -> Result<ApplyBannerResult, String> {
+    crate::commands::bin::meta_schema::refresh(&app).await;
     let mut r = resolve(&project_path)?;
     let params = params.unwrap_or_default().into_params();
     let rebuild_mask = rebuild_mask.unwrap_or(true);

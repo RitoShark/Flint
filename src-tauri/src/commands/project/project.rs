@@ -11,7 +11,7 @@ use flint_core::project::{
 use flint_core::repath::{organize_project, rename_project_asset_prefix, OrganizerConfig, RenameResult};
 use flint_core::wad::extractor::{
     find_champion_wad, find_voiceover_wads, extract_skin_assets, extract_skin_assets_selective,
-    wad_contains_skin_bin,
+    wad_contains_skin_bin, AudioExtraction,
 };
 use flint_core::hash::{resolve_hashes_lmdb_bulk, ResolvedHashes};
 use crate::state::LmdbCacheState;
@@ -259,6 +259,7 @@ pub async fn create_project(
     let assets_path = project.assets_path();
     let champion_for_extract = champion.clone();
     let env_for_vo = env_arc.clone();
+    let audio = AudioExtraction { sfx: repath_sfx, vo: repath_vo };
 
     let t = Instant::now();
     let extraction_result = tokio::task::spawn_blocking(move || {
@@ -277,6 +278,7 @@ pub async fn create_project(
             skin_id,
             &resolve,
             is_tft_project,
+            audio,
         ) {
             Ok(r) => Ok(r),
             Err(e) => {
@@ -291,6 +293,7 @@ pub async fn create_project(
                     skin_id,
                     resolve,
                     is_tft_project,
+                    audio,
                 )
                 .map_err(|e| e.to_string())
             }
@@ -319,7 +322,7 @@ pub async fn create_project(
                     resolve_hashes_lmdb_bulk(hashes, &env)
                 };
                 let vo_result = tokio::task::spawn_blocking(move || {
-                    extract_skin_assets(&vo_wad, &assets_path, &champion_for_vo, skin_id, resolve, false)
+                    extract_skin_assets(&vo_wad, &assets_path, &champion_for_vo, skin_id, resolve, false, audio)
                 })
                 .await;
                 match vo_result {

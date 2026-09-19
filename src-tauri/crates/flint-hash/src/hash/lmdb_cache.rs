@@ -10,6 +10,13 @@ use rustc_hash::FxHashMap;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static DATABASE_REVISION: AtomicU64 = AtomicU64::new(0);
+
+pub fn database_revision() -> u64 {
+    DATABASE_REVISION.load(Ordering::Acquire)
+}
 
 // ── Arena-backed resolved-hash table ──────────────────────────────────────────
 #[derive(Default, Clone)]
@@ -211,8 +218,8 @@ pub fn get_or_open_env(hash_dir: &str) -> Option<Arc<heed::Env>> {
     get_wad_env(hash_dir)
 }
 
-/// Drop all cached envs. Call before replacing the on-disk `data.mdb` so
-/// Windows doesn't refuse the overwrite (the file is memory-mapped while open).
+/// Drop our cached references. This does not close heed's global environments
+/// or active readers, so it cannot make a mapped `data.mdb` safe to replace.
 pub fn drop_lmdb_cache() {
     {
         let mut g = wad_mutex().lock().unwrap_or_else(|e| e.into_inner());
@@ -237,6 +244,51 @@ pub fn drop_lmdb_cache() {
 // ── Resolve helpers ───────────────────────────────────────────────────────────
 
 static DB_HANDLES: OnceLock<Mutex<HashMap<String, Database<Bytes, Str>>>> = OnceLock::new();
+
+/// Import a private staged database without replacing a live memory-mapped file.
+/// LMDB readers retain their snapshot; a failed import rolls back the write.
+pub(crate) fn install_database(source: &Path, target: &Path, name: &str) -> heed::Result<()> {
+    // The staging file has no concurrent writers and is not a directory layout.
+    let staged = unsafe {
+        EnvOpenOptions::new()
+            .max_dbs(2)
+            .flags(heed::EnvFlags::NO_SUB_DIR | heed::EnvFlags::READ_ONLY | heed::EnvFlags::NO_LOCK)
+            .open(source)?
+    };
+    let result = (|| {
+        let read = staged.read_txn()?;
+        let input = staged.open_database::<Bytes, Str>(&read, Some(name))?
+            .ok_or(heed::Error::Mdb(heed::MdbError::NotFound))?;
+        let env = unsafe {
+            EnvOpenOptions::new()
+                .map_size(1024 * 1024 * 1024)
+                .max_dbs(2)
+                .open(target)?
+        };
+        // Serialize DBI creation with cached_db, including the committing txn.
+        let mut handles = DB_HANDLES.get_or_init(|| Mutex::new(HashMap::new()))
+            .lock().unwrap_or_else(|e| e.into_inner());
+        let mut write = env.write_txn()?;
+        let output = env.create_database::<Bytes, Str>(&mut write, Some(name))?;
+        write.commit()?;
+        handles.insert(format!("{}\u{1}{}", env.path().display(), name), output);
+        drop(handles);
+
+        let mut write = env.write_txn()?;
+        output.clear(&mut write)?;
+        for entry in input.iter(&read)? {
+            let (key, value) = entry?;
+            output.put(&mut write, key, value)?;
+        }
+        write.commit()?;
+        DATABASE_REVISION.fetch_add(1, Ordering::Release);
+        Ok(())
+    })();
+    // heed retains a process-global environment reference; dropping our handle
+    // alone would leave the staging file mapped and undeletable on Windows.
+    staged.prepare_for_closing().wait();
+    result
+}
 
 /// Resolve the (named, else unnamed) DB handle for an env, opening it at most
 /// once per process behind a mutex.
@@ -373,6 +425,80 @@ pub fn resolve_bin_hashes_lmdb(hashes: &[u32], env: &heed::Env) -> HashMap<u32, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn install_updates_live_readers_and_preserves_existing_snapshots() {
+        let root = std::env::temp_dir().join(format!("flint-live-hash-install-{}-{}",
+            std::process::id(), std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&root).unwrap();
+        for name in ["wad", "bin"] {
+            let target = root.join(name);
+            std::fs::create_dir_all(&target).unwrap();
+            let env = unsafe { EnvOpenOptions::new().map_size(1024 * 1024 * 1024)
+                .max_dbs(2).open(&target).unwrap() };
+            let mut write = env.write_txn().unwrap();
+            let db = env.create_database::<Bytes, Str>(&mut write, Some(name)).unwrap();
+            db.put(&mut write, b"old", "old value").unwrap();
+            write.commit().unwrap();
+            let db = cached_db(&env, name).unwrap();
+            let snapshot = env.read_txn().unwrap();
+
+            let source = root.join(format!("{name}.tmp"));
+            let staged = unsafe { EnvOpenOptions::new().map_size(1024 * 1024)
+                .max_dbs(2).flags(heed::EnvFlags::NO_SUB_DIR).open(&source).unwrap() };
+            let mut write = staged.write_txn().unwrap();
+            let input = staged.create_database::<Bytes, Str>(&mut write, Some(name)).unwrap();
+            input.put(&mut write, b"new", "new value").unwrap();
+            write.commit().unwrap();
+            staged.prepare_for_closing().wait();
+
+            let src = source.clone();
+            let dst = target.clone();
+            std::thread::spawn(move || install_database(&src, &dst, name)).join().unwrap().unwrap();
+            assert_eq!(db.get(&snapshot, b"old").unwrap(), Some("old value"));
+            assert_eq!(db.get(&snapshot, b"new").unwrap(), None);
+            drop(snapshot);
+            let current = env.read_txn().unwrap();
+            assert_eq!(db.get(&current, b"old").unwrap(), None);
+            assert_eq!(db.get(&current, b"new").unwrap(), Some("new value"));
+            drop(current);
+
+            let fresh = root.join(format!("fresh-{name}"));
+            std::fs::create_dir_all(&fresh).unwrap();
+            install_database(&source, &fresh, name).unwrap();
+            let fresh_env = open_env(&fresh).unwrap();
+            let read = fresh_env.read_txn().unwrap();
+            let fresh_db = fresh_env.open_database::<Bytes, Str>(&read, Some(name)).unwrap().unwrap();
+            assert_eq!(fresh_db.get(&read, b"new").unwrap(), Some("new value"));
+            drop(read);
+            fresh_env.prepare_for_closing().wait();
+
+            // A release with the wrong named database must leave live data intact.
+            assert!(install_database(&source, &target, "missing").is_err());
+            let current = env.read_txn().unwrap();
+            assert_eq!(db.get(&current, b"new").unwrap(), Some("new value"));
+            drop(current);
+            // An invalid value encountered after clearing the destination must
+            // abort the entire transaction, preserving the installed dictionary.
+            let staged = unsafe { EnvOpenOptions::new().map_size(1024 * 1024)
+                .max_dbs(2).flags(heed::EnvFlags::NO_SUB_DIR).open(&source).unwrap() };
+            let mut write = staged.write_txn().unwrap();
+            let input = staged.create_database::<Bytes, Bytes>(&mut write, Some(name)).unwrap();
+            input.put(&mut write, b"bad", &[0xff]).unwrap();
+            write.commit().unwrap();
+            staged.prepare_for_closing().wait();
+            assert!(install_database(&source, &target, name).is_err());
+            let current = env.read_txn().unwrap();
+            assert_eq!(db.get(&current, b"new").unwrap(), Some("new value"));
+            assert_eq!(db.get(&current, b"bad").unwrap(), None);
+            drop(current);
+            // Windows refuses this if the installer leaked its staged mapping.
+            std::fs::remove_file(&source).unwrap();
+            env.prepare_for_closing().wait();
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn insert_overwrites_on_a_duplicate_key() {

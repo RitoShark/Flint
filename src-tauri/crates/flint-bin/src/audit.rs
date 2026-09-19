@@ -81,7 +81,10 @@ fn is_game_path(rel: &str) -> bool {
 }
 
 fn is_missing_exempt(rel: &str) -> bool {
-    if rel.contains("/sounds/wwise2016/vo/") {
+    // Audio extraction is opt-in. These stock banks and sound BINs are supplied
+    // by the game; a partial skin mod need not ship them. Match only stock roots
+    // so missing ASSETS/<creator>/<project>/audio/... still produces a warning.
+    if rel.starts_with("assets/sounds/") || rel.starts_with("data/sounds/") {
         return true;
     }
 
@@ -693,13 +696,54 @@ mod tests {
     }
 
     #[test]
-    fn missing_check_ignores_voiceover_files() {
+    fn missing_check_ignores_stock_audio_but_not_custom_audio() {
         assert!(is_missing_exempt(
             "assets/sounds/wwise2016/vo/en_us/characters/ahri/ahri_vo_audio.wpk"
         ));
-        assert!(!is_missing_exempt(
+        assert!(is_missing_exempt(
             "assets/sounds/wwise2016/sfx/characters/ahri/ahri_sfx_audio.bnk"
         ));
+        assert!(is_missing_exempt("data/sounds/wwise2016/sfx/ahri.bin"));
+        assert!(!is_missing_exempt("assets/creator/project/audio/sfx/custom.bnk"));
+        assert!(!is_missing_exempt("assets/creator/sounds/wwise2016/vo/custom.wpk"));
+        assert!(!is_missing_exempt("assets/characters/ahri/missing.tex"));
+    }
+
+    #[test]
+    fn folder_and_file_audits_ignore_stock_audio_strings_hashes_and_links() {
+        use ritoshark::bin::BinEntry;
+        let dir = tempfile::tempdir().unwrap();
+        let bank = "assets/sounds/wwise2016/sfx/audit-stock.bnk";
+        let custom = "assets/creator/project/audio/sfx/missing.bnk";
+        let texture = "assets/characters/audit-test/missing.tex";
+        let hash = ritoshark::hash::xxh64(bank);
+        let mut bin = Bin::new();
+        bin.linked.push("DATA/Sounds/Wwise2016/SFX/audit-stock.bin".into());
+        bin.entries.push(BinEntry {
+            path_hash: 1, class_hash: 2,
+            fields: [
+                (1, BinValue::String("ASSETS/Sounds/Wwise2016/SFX/audit-string.bnk".into())),
+                (2, BinValue::File(hash)),
+                (3, BinValue::String(custom.into())),
+                (4, BinValue::String(texture.into())),
+            ].into_iter().collect(),
+        });
+        let mut trailer = crate::Trailer::new();
+        trailer.files.insert(hash, bank.into());
+        bin.trailing = ritoshark::bin::append_trailer(&bin.trailing, &trailer);
+        std::fs::write(dir.path().join("skin0.bin"), crate::codec::write_bin(&bin).unwrap()).unwrap();
+
+        let folder = audit_wad_folder(dir.path()).unwrap();
+        assert_eq!(folder.missing, vec![texture.to_string(), custom.to_string()]);
+        let single = check_one_file(dir.path(), "skin0.bin").unwrap();
+        for issues in [&folder.issues, &single] {
+            let missing: Vec<_> = issues.iter().filter(|i| i.code == "bin.missing-ref").collect();
+            assert_eq!(missing.len(), 1);
+            assert!(missing[0].message.contains("References 2 files"));
+            assert!(missing[0].message.contains(custom));
+            assert!(missing[0].message.contains(texture));
+            assert!(!missing[0].message.contains("audit-stock"));
+        }
     }
 
     #[test]
