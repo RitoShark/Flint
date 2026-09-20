@@ -2,6 +2,7 @@ import type { TranslationDict } from '../types';
 
 export const pl: TranslationDict = {
     // Common
+    'common.restore': 'Przywróć',
     'common.save': 'Zapisz',
     'common.saved': 'Zapisano',
     'common.saving': 'Zapisywanie...',
@@ -191,7 +192,7 @@ export const pl: TranslationDict = {
     'export.missingRefsTitle': 'Brakujące odwołania do plików',
     'export.missingRefsWarning': '{count} plik powiązany w plikach BIN tego modu nie znajduje się w projekcie.',
     'export.missingRefsWarningPlural': '{count} plików powiązanych w plikach BIN tego modu nie znajduje się w projekcie.',
-    'export.missingRefsNote': 'Spowoduje to błędy w grze (np. fioletowe tekstury lub brakujące efekty). Czy mimo to chcesz kontynuować?',
+    'export.missingRefsNote': 'Spowoduje to błędy w grze (np. białe kwadraty lub brakujące efekty). Czy mimo to chcesz kontynuować?',
     'export.exportAnyway': 'Eksportuj mimo to',
     'export.exportedSuccess': 'Pomyślnie wyeksportowano do {path}',
 

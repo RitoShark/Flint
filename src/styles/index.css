@@ -4,6 +4,7 @@
 @import './foundation/utilities.css';
 @import './components/choices.css';
 @import './components/confirm-dialog.css';
+@import './components/asset-paths.css';
 @import './components/context-menu.css';
 @import './components/forms.css';
 @import './components/menus.css';

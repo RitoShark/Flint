@@ -54,6 +54,9 @@ pub struct CheckIssue {
     pub file: String,
     /// One line, for a list row or a tree tooltip. The rest belongs in `detail`.
     pub message: String,
+    /// Full asset references for structured path displays.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub paths: Vec<String>,
     /// 1-based line in the bin's ritobin text, when the finding sits on one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub line: Option<u32>,
@@ -74,6 +77,7 @@ impl CheckIssue {
             code,
             file: file.to_string(),
             message,
+            paths: Vec::new(),
             line: None,
             expected: None,
             detail: None,

@@ -41,11 +41,15 @@
   flex-shrink: 0;
 }
 
-.confirm-dialog__content { text-align: center; display: flex; flex-direction: column; gap: var(--space-sm); }
+.confirm-dialog__content { min-width: 0; width: 100%; text-align: center; display: flex; flex-direction: column; gap: var(--space-sm); }
 
 .confirm-dialog__title { font-size: var(--text-base); font-weight: 600; color: var(--text-primary); }
 
-.confirm-dialog__message { font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.5; }
+.confirm-dialog__message { font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.5; overflow-wrap: anywhere; white-space: pre-line; }
+.confirm-dialog { max-height: 90vh; overflow-y: auto; }
+.confirm-dialog--paths { width: 560px; align-items: flex-start; }
+.confirm-dialog--paths .confirm-dialog__content { text-align: left; gap: 16px; }
+.confirm-dialog__note { margin: 0; font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.6; white-space: pre-line; }
 
 .confirm-dialog__checkbox { margin-top: 12px; font-size: var(--text-sm); }
 

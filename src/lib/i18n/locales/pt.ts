@@ -2,6 +2,7 @@ import type { TranslationDict } from '../types';
 
 export const pt: TranslationDict = {
     // Common
+    'common.restore': 'Restaurar',
     'common.save': 'Salvar',
     'common.saved': 'Salvo',
     'common.saving': 'Salvando...',
@@ -191,7 +192,7 @@ export const pt: TranslationDict = {
     'export.missingRefsTitle': 'Referências de arquivos ausentes',
     'export.missingRefsWarning': '{count} arquivo referenciado pelos BINs deste mod não está no projeto.',
     'export.missingRefsWarningPlural': '{count} arquivos referenciados pelos BINs deste mod não estão no projeto.',
-    'export.missingRefsNote': 'Isso causará problemas visuais no jogo (texturas magenta ou efeitos ausentes). Deseja exportar mesmo assim?',
+    'export.missingRefsNote': 'Isso causará problemas visuais no jogo (quadrados brancos ou efeitos ausentes). Deseja exportar mesmo assim?',
     'export.exportAnyway': 'Exportar mesmo assim',
     'export.exportedSuccess': 'Exportado com sucesso para {path}',
 

@@ -19,6 +19,8 @@ interface BuildOptionsArgs {
     openConfirmDialog: (dialog: {
         title: string;
         message: string;
+        paths?: Array<{ path: string; label?: string }>;
+        note?: string;
         confirmLabel?: string;
         danger?: boolean;
         onConfirm: () => void;
@@ -650,16 +652,19 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                 showToast('warning', `Original file not found — ${reason}`);
                 return;
             }
-            const matchNote = meta.exact
-                ? ''
-                : ` (matched "${meta.matched_internal_path}" — your file's path differs from the WAD path; this is normal for repathed projects)`;
-            const message =
-                `Overwrite "${fileName}" with the original from ${meta.queried_wad_name}?${matchNote}\n\n` +
-                `A backup of the current file will be saved automatically before replacing.`;
             openConfirmDialog({
                 title: t('contextMenu.restoreOriginal'),
-                message,
-                confirmLabel: t('common.restore') || 'Restore',
+                message: 'Replace this file with the original from your League installation?',
+                paths: [
+                    { label: 'File to replace', path: node.path },
+                    { label: 'Source archive', path: meta.queried_wad_name },
+                    ...(meta.matched_internal_path
+                        ? [{ label: 'Original asset', path: meta.matched_internal_path }]
+                        : []),
+                ],
+                note: (meta.exact ? '' : 'The original uses a different path. This is normal for repathed projects.\n\n') +
+                    'A backup of your current file will be saved automatically before replacing it.',
+                confirmLabel: t('common.restore'),
                 onConfirm: async () => {
                     try {
                         try {

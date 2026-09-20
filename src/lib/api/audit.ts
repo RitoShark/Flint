@@ -24,6 +24,8 @@ export interface CheckIssue {
     file: string;
     /** One line, for a list row or a tree tooltip. */
     message: string;
+    /** Full asset references, independent of the short summary. */
+    paths?: string[];
     /** 1-based line in the bin's ritobin text, when the finding sits on one. */
     line?: number;
     /** The form the client actually reads, e.g. `texturePath: file`. */

@@ -2,6 +2,7 @@ import type { TranslationDict } from '../types';
 
 export const tr: TranslationDict = {
     // Common
+    'common.restore': 'Geri yükle',
     'common.save': 'Kaydet',
     'common.saved': 'Kaydedildi',
     'common.saving': 'Kaydediliyor...',
@@ -191,7 +192,7 @@ export const tr: TranslationDict = {
     'export.missingRefsTitle': 'Eksik dosya referansları tespit edildi',
     'export.missingRefsWarning': 'Modun BIN dosyalarında kullanılan {count} dosya projede bulunamadı.',
     'export.missingRefsWarningPlural': 'Modun BIN dosyalarında kullanılan {count} dosya projede bulunamadı.',
-    'export.missingRefsNote': 'Bu durum oyunda eksik efekt veya pembe kaplama gibi hatalara yol açabilir. Yine de paketlemek isterseniz devam edebilirsiniz.',
+    'export.missingRefsNote': 'Bu durum oyunda beyaz kareler veya eksik efektler gibi hatalara yol açabilir. Yine de paketlemek isterseniz devam edebilirsiniz.',
     'export.exportAnyway': 'Yine de Paketle',
     'export.exportedSuccess': 'Başarıyla paketlendi: {path}',
 

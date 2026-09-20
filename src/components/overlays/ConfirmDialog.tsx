@@ -1,7 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useModalStore } from '../../lib/stores';
-import { Button, Checkbox } from '../ui';
+import { AssetPaths, Button, Checkbox } from '../ui';
 
 const DangerIcon = () => (
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
@@ -64,11 +64,13 @@ export const ConfirmDialog: React.FC = () => {
     // modal that portals itself into <body> later, whatever z-index it carries.
     return createPortal(
         <div className="confirm-overlay" onClick={handleOverlayClick}>
-            <div className="confirm-dialog">
+            <div className={`confirm-dialog${dialog.paths?.length ? ' confirm-dialog--paths' : ''}`} role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title">
                 <div className="confirm-dialog__icon">{dialog.danger ? <DangerIcon /> : <InfoIcon />}</div>
                 <div className="confirm-dialog__content">
-                    <h3 className="confirm-dialog__title">{dialog.title}</h3>
+                    <h3 className="confirm-dialog__title" id="confirm-dialog-title">{dialog.title}</h3>
                     <p className="confirm-dialog__message">{dialog.message}</p>
+                    {!!dialog.paths?.length && <AssetPaths entries={dialog.paths} />}
+                    {dialog.note && <p className="confirm-dialog__note">{dialog.note}</p>}
                     {dialog.showCheckbox && (
                         <Checkbox
                             className="confirm-dialog__checkbox"

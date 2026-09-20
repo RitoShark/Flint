@@ -317,6 +317,7 @@ impl Schema {
                 severity: Severity::Warning, code: "bin.schema-type-mismatch", file: file.into(),
                 message: format!("{class_name}.{field_name} is declared `{got}`, metadata expects `{expected}` ({count} occurrence{})", if count == 1 { "" } else { "s" }),
                 line: lines.first().copied(),
+                paths: Vec::new(),
                 expected: Some(format!("{field_name}: {expected}")),
                 detail: Some(detail),
                 fix,

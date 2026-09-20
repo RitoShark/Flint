@@ -41,6 +41,7 @@ describe('i18n translations', () => {
         const testKeys = [
             'common.save',
             'common.cancel',
+            'common.restore',
             'settings.title',
             'settings.tab.binEditor',
             'settings.binEditor.autoSuggestions',

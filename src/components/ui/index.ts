@@ -1,4 +1,5 @@
 export { Button, IconButton } from './Button';
+export { AssetPaths } from './AssetPaths';
 export type { ButtonProps, ButtonVariant, ButtonSize, IconButtonProps } from './Button';
 
 export { Checkbox } from './Checkbox';

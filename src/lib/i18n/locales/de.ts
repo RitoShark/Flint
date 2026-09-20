@@ -2,6 +2,7 @@ import type { TranslationDict } from '../types';
 
 export const de: TranslationDict = {
     // Common
+    'common.restore': 'Wiederherstellen',
     'common.save': 'Speichern',
     'common.saved': 'Gespeichert',
     'common.saving': 'Wird gespeichert...',
@@ -191,7 +192,7 @@ export const de: TranslationDict = {
     'export.missingRefsTitle': 'Fehlende Dateireferenzen',
     'export.missingRefsWarning': '{count} in den BINs referenzierte Datei fehlt im Projekt.',
     'export.missingRefsWarningPlural': '{count} in den BINs referenzierte Dateien fehlen im Projekt.',
-    'export.missingRefsNote': 'Dies führt im Spiel zu Darstellungsfehlern (z. B. lila Texturen). Trotzdem exportieren?',
+    'export.missingRefsNote': 'Dies führt im Spiel zu Darstellungsfehlern (z. B. weiße Quadrate oder fehlende Effekte). Trotzdem exportieren?',
     'export.exportAnyway': 'Trotzdem exportieren',
     'export.exportedSuccess': 'Erfolgreich exportiert nach {path}',
 

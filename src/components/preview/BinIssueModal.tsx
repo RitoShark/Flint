@@ -1,6 +1,7 @@
 import React, { useRef } from 'react';
 import type * as api from '../../lib/api';
 import { Button } from '../ui/Button';
+import { AssetPaths } from '../ui/AssetPaths';
 import { Modal, ModalBody, ModalFooter, ModalHeader } from '../ui/Modal';
 
 interface Props {
@@ -35,7 +36,7 @@ export const BinIssueModal: React.FC<Props> = ({ issue, applied, dirty, onGoToLi
         <Modal open={!!issue} onClose={onClose} modifier="modal--bin-issue">
             {shown && (
                 <>
-                    <ModalHeader title={shown.message} />
+                    <ModalHeader title={shown.code === 'bin.missing-ref' ? 'Missing asset references' : shown.message} />
                     <ModalBody>
                         <div className="bin-issue__meta">
                             <span className={`bin-issue__severity bin-issue__severity--${shown.severity}`}>
@@ -44,6 +45,14 @@ export const BinIssueModal: React.FC<Props> = ({ issue, applied, dirty, onGoToLi
                             <code className="bin-issue__code">{shown.code}</code>
                         </div>
 
+                        {shown.code === 'bin.missing-ref' && (
+                            <p className="bin-issue__detail">
+                                {shown.paths?.length ? `References ${shown.paths.length} file${shown.paths.length === 1 ? '' : 's'} this folder does not include.` : shown.message}
+                            </p>
+                        )}
+                        {!!shown.paths?.length && (
+                            <AssetPaths label="Missing assets" entries={shown.paths.map(path => ({ path }))} />
+                        )}
                         {shown.detail && <p className="bin-issue__detail">{shown.detail}</p>}
 
                         {fix && (

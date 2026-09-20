@@ -125,6 +125,8 @@ export interface Chroma {
 export interface ConfirmDialogState {
     title: string;
     message: string;
+    paths?: Array<{ path: string; label?: string }>;
+    note?: string;
     confirmLabel?: string;
     cancelLabel?: string;
     danger?: boolean;

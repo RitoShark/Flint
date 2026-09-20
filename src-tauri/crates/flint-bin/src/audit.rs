@@ -293,10 +293,11 @@ fn missing_ref_issue(rel: &str, absent: &[String]) -> CheckIssue {
                 String::new()
             },
         ),
+        paths: absent.to_vec(),
         line: None,
         expected: None,
         detail: Some(
-            "Unless the game itself provides them, they load magenta or not at all.".into(),
+            "Unless the game itself provides them, missing assets appear as white squares or do not render.".into(),
         ),
         fix: None,
     }
@@ -587,6 +588,17 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn missing_ref_paths_include_references_beyond_the_summary() {
+        let paths: Vec<String> = (0..5).map(|i| format!("assets/effects/aura_{i}.tex")).collect();
+        let issue = missing_ref_issue("data/skin.bin", &paths);
+        assert!(issue.message.contains("and 2 more"));
+        assert_eq!(issue.paths, paths);
+        let json = serde_json::to_value(&issue).unwrap();
+        assert_eq!(json["paths"].as_array().unwrap().len(), 5);
+        assert!(issue.detail.unwrap().contains("white squares"));
+    }
 
     #[test]
     fn texture_audit_reads_only_headers_without_changing_findings() {

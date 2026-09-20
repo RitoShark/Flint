@@ -243,6 +243,8 @@
 .bin-issue__severity--critical { color: var(--color-danger); }
 .bin-issue__code { color: var(--text-muted); font-size: 11px; }
 .bin-issue__detail { margin: 0 0 12px; line-height: 1.55; }
+.modal--bin-issue .modal__title { overflow-wrap: anywhere; }
+.modal--bin-issue .asset-paths { margin-bottom: 16px; }
 .bin-issue__diff {
     display: flex;
     flex-direction: column;
