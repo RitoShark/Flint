@@ -333,6 +333,8 @@ pub async fn create_file_backup(
         return Err(format!("File not found: {}", src.display()));
     }
     let dst = backup_path_for(&project_path, &file_rel_path)?;
+    flint_core::project_storage::ensure_metadata_dir(Path::new(&project_path))
+        .map_err(|e| format!("Failed to initialize metadata dir: {}", e))?;
     if let Some(parent) = dst.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("Failed to create backup dir: {}", e))?;

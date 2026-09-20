@@ -95,6 +95,8 @@ impl CheckpointManager {
     }
 
     pub fn init(&self) -> Result<()> {
+        crate::project_storage::ensure_metadata_dir(&self.project_path)
+            .map_err(|e| Error::io_with_path(e, self.project_path.join(".flint")))?;
         fs::create_dir_all(&self.checkpoints_dir)
             .map_err(|e| Error::io_with_path(e, &self.checkpoints_dir))?;
         fs::create_dir_all(&self.object_store)
@@ -113,6 +115,18 @@ impl CheckpointManager {
     where
         F: Fn(&str, u64, u64),
     {
+        // Keep the first paint restore point in each 15-minute editing window.
+        // Explicit checkpoints and destructive-operation backups never throttle.
+        let automatic = tags.iter().any(|tag| matches!(tag.as_str(), "auto" | "paint" | "fix" | "auto-backup"));
+        let latest = if automatic { self.list_checkpoints()?.into_iter().next() } else { None };
+        if tags.iter().any(|tag| tag == "paint") {
+            if let Some(ref checkpoint) = latest {
+                let age = Utc::now().signed_duration_since(checkpoint.timestamp).num_seconds();
+                if checkpoint.tags.iter().any(|tag| tag == "paint") && (0..900).contains(&age) {
+                    return Ok(checkpoint.clone());
+                }
+            }
+        }
         if let Some(ref cb) = progress {
             cb("Scanning files...", 0, 0);
         }
@@ -141,6 +155,13 @@ impl CheckpointManager {
             });
         }
 
+        if let Some(checkpoint) = latest {
+            if checkpoint.file_manifest.len() == manifest.len()
+                && manifest.iter().all(|(path, entry)| checkpoint.file_manifest.get(path).is_some_and(|old| old.hash == entry.hash))
+            {
+                return Ok(checkpoint);
+            }
+        }
         let checkpoint = Checkpoint {
             id: Uuid::new_v4().to_string(),
             timestamp: Utc::now(),
@@ -170,11 +191,18 @@ impl CheckpointManager {
         let object_rel_path = PathBuf::from(&hash[..2]).join(&hash);
         let object_path = self.object_store.join(object_rel_path);
 
-        if !object_path.exists() {
+        if !object_path.exists() && !object_path.with_extension("zst").exists() {
             if let Some(parent) = object_path.parent() {
                 fs::create_dir_all(parent).map_err(|e| Error::io_with_path(e, parent))?;
             }
-            fs::write(&object_path, data).map_err(|e| Error::io_with_path(e, &object_path))?;
+            let compressed = zstd::stream::encode_all(data.as_slice(), 3)
+                .map_err(|e| Error::io_with_path(e, &object_path))?;
+            let (stored_path, stored_data) = if compressed.len() < data.len() {
+                (object_path.with_extension("zst"), compressed)
+            } else {
+                (object_path, data)
+            };
+            fs::write(&stored_path, stored_data).map_err(|e| Error::io_with_path(e, &stored_path))?;
         }
 
         Ok((hash, size))
@@ -214,6 +242,11 @@ impl CheckpointManager {
     }
 
     pub fn list_checkpoints(&self) -> Result<Vec<Checkpoint>> {
+        let metadata_dir = self.project_path.join(".flint");
+        if metadata_dir.is_dir() {
+            crate::project_storage::hide_directory(&metadata_dir)
+                .map_err(|e| Error::io_with_path(e, &metadata_dir))?;
+        }
         let mut checkpoints = Vec::new();
         if !self.checkpoints_dir.exists() {
             return Ok(checkpoints);
@@ -265,17 +298,13 @@ impl CheckpointManager {
 
         for (rel_path, entry) in &checkpoint.file_manifest {
             let target_path = self.project_path.join(rel_path.replace('/', "\\"));
-            let object_path = self.object_store.join(&entry.hash[..2]).join(&entry.hash);
-
-            if !object_path.exists() {
-                return Err(Error::InvalidInput(format!("Object not found for hash: {}", entry.hash)));
-            }
+            let data = self.read_object_file(&entry.hash)?;
 
             if let Some(parent) = target_path.parent() {
                 fs::create_dir_all(parent).map_err(|e| Error::io_with_path(e, parent))?;
             }
 
-            fs::copy(&object_path, &target_path).map_err(|e| Error::io_with_path(e, &target_path))?;
+            fs::write(&target_path, data).map_err(|e| Error::io_with_path(e, &target_path))?;
         }
 
         self.cleanup_empty_dirs()?;
@@ -347,10 +376,12 @@ impl CheckpointManager {
 
     pub fn read_object_file(&self, hash: &str) -> Result<Vec<u8>> {
         let object_path = self.object_store.join(&hash[..2]).join(hash);
-        if !object_path.exists() {
-            return Err(Error::InvalidInput(format!("Object not found for hash: {}", hash)));
+        if object_path.exists() {
+            return fs::read(&object_path).map_err(|e| Error::io_with_path(e, &object_path));
         }
-        fs::read(&object_path).map_err(|e| Error::io_with_path(e, &object_path))
+        let compressed_path = object_path.with_extension("zst");
+        let file = fs::File::open(&compressed_path).map_err(|e| Error::io_with_path(e, &compressed_path))?;
+        zstd::stream::decode_all(file).map_err(|e| Error::io_with_path(e, &compressed_path))
     }
 
     /// Textures (DDS/TEX) decode to base64 PNG; text files return string content;
@@ -494,4 +525,69 @@ pub struct CheckpointDiff {
     pub added: Vec<FileEntry>,
     pub modified: Vec<(FileEntry, FileEntry)>, // (old, new)
     pub deleted: Vec<FileEntry>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn paint_groups_saves_but_manual_and_restore_backups_capture_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = CheckpointManager::new(dir.path().to_path_buf());
+        manager.init().unwrap();
+        let file = dir.path().join("test.txt");
+        fs::write(&file, "before").unwrap();
+        let first = manager.create_checkpoint("Paint".into(), vec!["paint".into()]).unwrap();
+        fs::write(&file, "after").unwrap();
+        let grouped = manager.create_checkpoint("Paint again".into(), vec!["paint".into()]).unwrap();
+        assert_eq!(first.id, grouped.id);
+        let backup = manager.create_checkpoint("Before restore".into(), vec!["auto-backup".into()]).unwrap();
+        assert_ne!(first.id, backup.id);
+        let duplicate = manager.create_checkpoint("Before fix".into(), vec!["fix".into()]).unwrap();
+        assert_eq!(backup.id, duplicate.id);
+        let manual = manager.create_checkpoint("Milestone".into(), vec![]).unwrap();
+        assert_ne!(manual.id, backup.id);
+        assert_eq!(manager.list_checkpoints().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn paint_creates_a_new_point_after_the_window_expires() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = CheckpointManager::new(dir.path().to_path_buf());
+        manager.init().unwrap();
+        fs::write(dir.path().join("test.txt"), "before").unwrap();
+        let mut first = manager.create_checkpoint("Paint".into(), vec!["paint".into()]).unwrap();
+        first.timestamp = Utc::now() - chrono::Duration::minutes(16);
+        manager.save_checkpoint(&first).unwrap();
+        fs::write(dir.path().join("test.txt"), "after").unwrap();
+        let next = manager.create_checkpoint("Paint".into(), vec!["paint".into()]).unwrap();
+        assert_ne!(first.id, next.id);
+    }
+
+    #[test]
+    fn compressed_and_legacy_objects_round_trip_and_restore() {
+        let dir = tempfile::tempdir().unwrap();
+        let manager = CheckpointManager::new(dir.path().to_path_buf());
+        manager.init().unwrap();
+        let data = vec![b'a'; 16_384];
+        let file = dir.path().join("test.txt");
+        fs::write(&file, &data).unwrap();
+        let checkpoint = manager.create_checkpoint("Original".into(), vec![]).unwrap();
+        let json = fs::read_to_string(manager.checkpoints_dir.join(format!("{}.json", checkpoint.id))).unwrap();
+        assert!(json.contains("\n  \"id\": "));
+        let parsed: Checkpoint = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.id, checkpoint.id);
+        let hash = &checkpoint.file_manifest["test.txt"].hash;
+        let object = manager.object_store.join(&hash[..2]).join(hash);
+        assert!(fs::metadata(object.with_extension("zst")).unwrap().len() < data.len() as u64);
+        assert_eq!(manager.read_object_file(hash).unwrap(), data);
+        fs::write(&file, "changed").unwrap();
+        manager.restore_checkpoint(&checkpoint.id).unwrap();
+        assert_eq!(fs::read(&file).unwrap(), data);
+        // Existing raw objects remain supported without migration.
+        fs::write(&object, &data).unwrap();
+        fs::remove_file(object.with_extension("zst")).unwrap();
+        assert_eq!(manager.read_object_file(hash).unwrap(), data);
+    }
 }

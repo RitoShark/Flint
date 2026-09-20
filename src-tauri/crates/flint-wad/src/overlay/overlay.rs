@@ -182,6 +182,7 @@ pub fn cache_path(project_path: &Path) -> PathBuf {
 }
 
 pub fn load_cache(project_path: &Path) -> Option<(OverlayFingerprint, ProjectHashOverlay)> {
+    crate::project_storage::hide_directory(&project_path.join(".flint")).ok()?;
     let text = std::fs::read_to_string(cache_path(project_path)).ok()?;
     let parsed: CacheFile = serde_json::from_str(&text).ok()?;
 
@@ -198,16 +199,14 @@ pub fn save_cache(
     overlay: &ProjectHashOverlay,
 ) -> std::io::Result<()> {
     let path = cache_path(project_path);
-    if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
+    crate::project_storage::ensure_metadata_dir(project_path)?;
 
     let payload = CacheFile {
         fingerprint: *fingerprint,
         wad: overlay.wad_iter().map(|(h, s)| (h, s.to_string())).collect(),
     };
 
-    let text = serde_json::to_string(&payload)
+    let text = serde_json::to_string_pretty(&payload)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     std::fs::write(path, text)
 }
@@ -380,6 +379,9 @@ mod tests {
         save_cache(dir.path(), &fp, &ProjectHashOverlay::new()).unwrap();
 
         assert!(cache_path(dir.path()).exists());
+        let json = std::fs::read_to_string(cache_path(dir.path())).unwrap();
+        assert!(json.contains("\n  \"fingerprint\": "));
+        assert!(load_cache(dir.path()).is_some());
     }
 
     #[test]

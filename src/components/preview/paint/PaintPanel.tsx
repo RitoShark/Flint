@@ -421,7 +421,7 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
                 return;
             }
             setDirty(false);
-            showToast('success', res.checkpointed ? 'Saved (checkpoint created)' : 'Saved');
+            showToast('success', res.checkpointed ? 'Saved (restore point available)' : 'Saved');
             onSaved?.();
         } catch (e) {
             showToast('error', e instanceof Error ? e.message : String(e));

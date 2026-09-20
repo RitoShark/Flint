@@ -1,5 +1,5 @@
 import { Button } from '../ui/Button';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useProjectTabStore, useAppMetadataStore, useNotificationStore, useModalStore } from '../../lib/stores';
 import * as api from '../../lib/api';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
@@ -27,6 +27,11 @@ export const CheckpointTimeline: React.FC = () => {
     const [checkpoints, setCheckpoints] = useState<Checkpoint[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [message, setMessage] = useState('');
+    const [search, setSearch] = useState('');
+    const [filter, setFilter] = useState('all');
+    const [page, setPage] = useState(0);
+    const loadRequest = useRef(0);
+    const previewRequest = useRef(0);
     const [selectedCheckpoint, setSelectedCheckpoint] = useState<string | null>(null);
     const [diff, setDiff] = useState<CheckpointDiff | null>(null);
     const [isComparing, setIsComparing] = useState(false);
@@ -48,35 +53,46 @@ export const CheckpointTimeline: React.FC = () => {
 
     useEffect(() => {
         let unlisten: (() => void) | null = null;
+        let disposed = false;
         listen<CheckpointProgress>('checkpoint-progress', (event) => {
             setCreateProgress(event.payload);
-        }).then(fn => { unlisten = fn; });
+        }).then(fn => { if (disposed) fn(); else unlisten = fn; });
 
-        return () => { if (unlisten) unlisten(); };
+        return () => { disposed = true; if (unlisten) unlisten(); };
     }, []);
 
     const loadCheckpoints = useCallback(async () => {
-        if (!currentProjectPath) return;
+        const request = ++loadRequest.current;
+        if (!currentProjectPath) { setIsLoading(false); return; }
         setIsLoading(true);
         try {
             // One IPC call returns the list + every adjacent diff. Diffs are
             // computed in parallel on the Rust side via rayon.
             const { checkpoints: list, diffs } = await api.listCheckpointsWithDiffs(currentProjectPath);
+            if (request !== loadRequest.current) return;
             setCheckpoints(list);
             setDiffCache(diffs);
+            setSelectedCheckpoint(selected => list.some(cp => cp.id === selected) ? selected : list[0]?.id ?? null);
         } catch (err) {
             console.error('Failed to load checkpoints:', err);
             showToast('error', 'Failed to load checkpoints');
         } finally {
-            setIsLoading(false);
+            if (request === loadRequest.current) setIsLoading(false);
         }
     }, [currentProjectPath, showToast]);
 
     useEffect(() => {
+        setSelectedCheckpoint(null);
+        setCheckpoints([]);
+        setPage(0);
         loadCheckpoints();
+        return () => { loadRequest.current++; previewRequest.current++; };
     }, [loadCheckpoints]);
 
     useEffect(() => {
+        previewRequest.current++;
+        setPreviewFile(null);
+        setIsComparing(false);
         if (!selectedCheckpoint || !currentProjectPath) {
             setDiff(null);
             setPreviewFile(null);
@@ -104,17 +120,21 @@ export const CheckpointTimeline: React.FC = () => {
         }
 
         const prevId = checkpoints[idx + 1].id;
+        let cancelled = false;
         setIsComparing(true);
         api.compareCheckpoints(currentProjectPath, prevId, selectedCheckpoint)
             .then(d => {
+                if (cancelled) return;
                 setDiff(d);
                 setDiffCache(prev => ({ ...prev, [selectedCheckpoint]: d }));
             })
             .catch(err => {
+                if (cancelled) return;
                 console.error('Failed to compare:', err);
                 showToast('error', 'Failed to compute diff');
             })
-            .finally(() => setIsComparing(false));
+            .finally(() => { if (!cancelled) setIsComparing(false); });
+        return () => { cancelled = true; };
     }, [selectedCheckpoint, checkpoints, currentProjectPath, diffCache, showToast]);
 
     const handleCreateCheckpoint = async (e: React.FormEvent) => {
@@ -124,7 +144,11 @@ export const CheckpointTimeline: React.FC = () => {
         setIsCreating(true);
         setCreateProgress(null);
         try {
-            await api.createCheckpoint(currentProjectPath, message);
+            const created = await api.createCheckpoint(currentProjectPath, message);
+            setSelectedCheckpoint(created.id);
+            setSearch('');
+            setFilter('all');
+            setPage(0);
             setMessage('');
             showToast('success', 'Checkpoint created');
             await loadCheckpoints();
@@ -186,6 +210,7 @@ export const CheckpointTimeline: React.FC = () => {
 
     const handleFileClick = async (filePath: string, oldHash?: string, newHash?: string) => {
         if (!currentProjectPath) return;
+        const request = ++previewRequest.current;
 
         setPreviewFile({ path: filePath, oldHash, newHash });
         setPreviewOld(null);
@@ -198,21 +223,21 @@ export const CheckpointTimeline: React.FC = () => {
             if (oldHash) {
                 promises.push(
                     api.readCheckpointFile(currentProjectPath, oldHash, filePath)
-                        .then(content => setPreviewOld(content))
-                        .catch(() => setPreviewOld(null))
+                        .then(content => { if (request === previewRequest.current) setPreviewOld(content); })
+                        .catch(() => { if (request === previewRequest.current) setPreviewOld(null); })
                 );
             }
             if (newHash) {
                 promises.push(
                     api.readCheckpointFile(currentProjectPath, newHash, filePath)
-                        .then(content => setPreviewNew(content))
-                        .catch(() => setPreviewNew(null))
+                        .then(content => { if (request === previewRequest.current) setPreviewNew(content); })
+                        .catch(() => { if (request === previewRequest.current) setPreviewNew(null); })
                 );
             }
 
             await Promise.all(promises);
         } finally {
-            setIsLoadingPreview(false);
+            if (request === previewRequest.current) setIsLoadingPreview(false);
         }
     };
 
@@ -224,6 +249,16 @@ export const CheckpointTimeline: React.FC = () => {
         ? Math.round((createProgress.current / createProgress.total) * 100)
         : 0;
 
+    const isAutomatic = (cp: Checkpoint) => cp.tags.some(tag => ['auto', 'auto-backup', 'paint', 'fix'].includes(tag)) || cp.message.startsWith('Auto-checkpoint:');
+    const filtered = checkpoints.filter(cp =>
+        (filter === 'all' || (filter === 'auto' ? isAutomatic(cp) : !isAutomatic(cp))) &&
+        `${cp.message} ${cp.tags.join(' ')} ${new Date(cp.timestamp).toLocaleString()}`.toLowerCase().includes(search.toLowerCase())
+    );
+    const pageCount = Math.max(1, Math.ceil(filtered.length / 30));
+    const currentPage = Math.min(page, pageCount - 1);
+    const visible = filtered.slice(currentPage * 30, (currentPage + 1) * 30);
+    const selected = checkpoints.find(cp => cp.id === selectedCheckpoint);
+
     return (
         <div className="checkpoint-view">
             <div className="checkpoint-view__header">
@@ -234,6 +269,7 @@ export const CheckpointTimeline: React.FC = () => {
                 <form className="checkpoint-view__create" onSubmit={handleCreateCheckpoint}>
                     <input
                         type="text"
+                        aria-label="Checkpoint name"
                         placeholder="Describe this checkpoint…"
                         value={message}
                         onChange={e => setMessage(e.target.value)}
@@ -246,6 +282,19 @@ export const CheckpointTimeline: React.FC = () => {
                 </form>
             </div>
 
+            <div className="checkpoint-view__toolbar">
+                <input className="dl-input" type="search" aria-label="Search checkpoints" placeholder="Search history…" value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} />
+                <select className="dl-input" aria-label="Checkpoint type" value={filter} onChange={e => { setFilter(e.target.value); setPage(0); }}>
+                    <option value="all">All checkpoints</option>
+                    <option value="manual">Manual</option>
+                    <option value="auto">Automatic</option>
+                </select>
+                <span>{filtered.length} checkpoints</span>
+                <Button variant="ghost" size="sm" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</Button>
+                <span>{currentPage + 1} / {pageCount}</span>
+                <Button variant="ghost" size="sm" disabled={currentPage + 1 >= pageCount} onClick={() => setPage(currentPage + 1)}>Next</Button>
+            </div>
+            <p className="checkpoint-view__hint">Paint saves share a restore point for 15 minutes. Exports and syncs do not create checkpoints.</p>
             {isCreating && createProgress && (
                 <div className="checkpoint-progress">
                     <div className="checkpoint-progress__info">
@@ -265,17 +314,28 @@ export const CheckpointTimeline: React.FC = () => {
 
             <div className="checkpoint-view__content">
                 <div className="checkpoint-view__list">
-                    {checkpoints.length === 0 ? (
+                    {visible.length === 0 ? (
                         <div className="checkpoint-view__empty">
-                            No checkpoints yet. Create one to save your progress!
+                            {checkpoints.length === 0 ? 'No checkpoints yet. Save one to keep your progress.' : 'No matching checkpoints.'}
                         </div>
                     ) : (
-                        checkpoints.map((cp, idx) => {
+                        visible.map(cp => {
                             const cpDiff = diffCache[cp.id];
-                            const isInitial = idx === checkpoints.length - 1;
+                            const isInitial = cp.id === checkpoints[checkpoints.length - 1]?.id;
                             return (
                                 <div
                                     key={cp.id}
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-pressed={selectedCheckpoint === cp.id}
+                                    onKeyDown={e => {
+                                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedCheckpoint(cp.id); }
+                                        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                                            e.preventDefault();
+                                            const next = e.key === 'ArrowDown' ? e.currentTarget.nextElementSibling : e.currentTarget.previousElementSibling;
+                                            (next as HTMLElement | null)?.focus();
+                                        }
+                                    }}
                                     className={`checkpoint-item ${selectedCheckpoint === cp.id ? 'checkpoint-item--selected' : ''}`}
                                     onClick={() => setSelectedCheckpoint(
                                         selectedCheckpoint === cp.id ? null : cp.id
@@ -284,7 +344,7 @@ export const CheckpointTimeline: React.FC = () => {
                                     <div className="checkpoint-item__marker" />
                                     <div className="checkpoint-item__content">
                                         <div className="checkpoint-item__header">
-                                            <span className="checkpoint-item__message">{cp.message}</span>
+                                            <span className="checkpoint-item__message" title={cp.message}>{cp.message}</span>
                                             <span className="checkpoint-item__date">
                                                 {new Date(cp.timestamp).toLocaleString()}
                                             </span>
@@ -321,22 +381,6 @@ export const CheckpointTimeline: React.FC = () => {
                                             ) : null}
                                         </div>
 
-                                        <div className="checkpoint-item__actions">
-                                            <Button
-                                                variant="ghost" size="sm" iconOnly
-                                                title="Restore this state"
-                                                onClick={(e) => { e.stopPropagation(); handleRestore(cp.id); }}
-                                            >
-                                                <span dangerouslySetInnerHTML={{ __html: getIcon('refresh') }} />
-                                            </Button>
-                                            <Button
-                                                variant="danger" size="sm" iconOnly
-                                                title="Delete checkpoint"
-                                                onClick={(e) => { e.stopPropagation(); handleDelete(cp.id); }}
-                                            >
-                                                <span dangerouslySetInnerHTML={{ __html: getIcon('trash') }} />
-                                            </Button>
-                                        </div>
                                     </div>
                                 </div>
                             );
@@ -345,6 +389,11 @@ export const CheckpointTimeline: React.FC = () => {
                 </div>
 
                 <div className="checkpoint-view__details">
+                    {selected && <div className="checkpoint-view__selection">
+                        <div><strong>{selected.message}</strong><small>{new Date(selected.timestamp).toLocaleString()}</small></div>
+                        <Button variant="ghost" size="sm" onClick={() => handleRestore(selected.id)}>Restore</Button>
+                        <Button variant="danger" size="sm" onClick={() => handleDelete(selected.id)}>Delete</Button>
+                    </div>}
                     {selectedCheckpoint ? (
                         <div className="checkpoint-details">
                             {isComparing ? (

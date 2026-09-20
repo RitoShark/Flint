@@ -386,9 +386,6 @@ export const TitleBar: React.FC = () => {
                     : `Installed into the ${launcherTarget.name} library as ${result.location}.`);
             }
 
-            api.createCheckpoint(currentProjectPath, `Auto-checkpoint: Synced to ${launcherTarget.name}`).catch(e => {
-                console.warn('Auto-checkpoint failed:', e);
-            });
 
         } catch (err) {
             console.error('Sync to launcher failed:', err);
@@ -451,9 +448,6 @@ export const TitleBar: React.FC = () => {
 
             showToast('success', `Exported to ${result.output_path}`);
 
-            api.createCheckpoint(currentProjectPath, `Auto-checkpoint: Exported to ${format}`).catch(e => {
-                console.warn('Auto-checkpoint failed:', e);
-            });
 
         } catch (err) {
             console.error('Export failed:', err);

@@ -5,4 +5,5 @@
 //! shared dictionaries.
 
 pub mod overlay;
+pub mod project_storage;
 pub mod wad;
