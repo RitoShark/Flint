@@ -586,6 +586,13 @@ pub async fn read_animation_list(skn_path: String) -> Result<AnimationList, Stri
     Ok(list)
 }
 
+#[tauri::command]
+pub async fn read_model_idle_effects(skn_path: String) -> Result<flint_core::mesh::idle_effects::IdleEffects, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        flint_core::mesh::idle_effects::read_idle_effects(Path::new(&skn_path))
+    }).await.map_err(|e| e.to_string())
+}
+
 /// One `.anm` file found by `list_anm_folder`. Naming/labelling is done on the
 /// frontend (`animFolder.ts`), which is where the collision rules are tested.
 #[derive(serde::Serialize)]

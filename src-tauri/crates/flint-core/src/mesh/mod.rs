@@ -10,4 +10,5 @@ pub mod wire;
 pub mod discovery;
 pub mod materials;
 pub mod ritobin;
+pub mod idle_effects;
 

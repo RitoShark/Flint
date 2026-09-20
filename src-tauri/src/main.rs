@@ -396,6 +396,7 @@ fn main() {
             commands::mesh::read_scb_mesh,
             commands::mesh::read_skl_skeleton,
             commands::mesh::read_animation_list,
+            commands::mesh::read_model_idle_effects,
             commands::mesh::list_anm_folder,
             commands::mesh::read_animation,
             commands::mesh::resolve_asset_path,

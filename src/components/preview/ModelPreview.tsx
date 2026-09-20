@@ -39,6 +39,8 @@ import { SubmeshVisibilityTimeline, fnv1a32Lower } from '../../lib/babylon/subme
 import type { AnimationClipInfo, SkinForm, SubmeshVisEvent } from '../../lib/api/mesh';
 import { modelPreviewSessionStore, type ModelPreviewSession } from '../../lib/stores/modelPreviewSessionStore';
 import { shaderForgeAvailable, loadShaderForge } from '@shaderforge';
+import { readModelIdleEffects, type IdleEffectData } from '../../lib/api/idleEffects';
+import { playIdleEffects } from '../../lib/babylon/idleEffectPlayer';
 
 // ============================================================================
 // Types
@@ -281,6 +283,10 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     const [animSearch, setAnimSearch] = useState('');
     const [loopAnimation, setLoopAnimation] = useState(true);
     const [playbackSpeed, setPlaybackSpeed] = useState(1);
+    const [showIdleEffects, setShowIdleEffects] = useState(true);
+    const [idleEffects, setIdleEffects] = useState<{ path: string; data: IdleEffectData } | null>(null);
+    const [idleWarnings, setIdleWarnings] = useState<string[]>([]);
+    const idlePlayerRef = useRef<ReturnType<typeof playIdleEffects> | null>(null);
 
     const filteredAnimations = useMemo(() => {
         const q = animSearch.trim().toLowerCase();
@@ -1043,6 +1049,40 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         };
     }, [scene, camera, meshData, skeletonData]);
 
+    useEffect(() => {
+        let cancelled = false;
+        setIdleEffects(null);
+        setIdleWarnings([]);
+        if (meshType !== 'static') {
+            readModelIdleEffects(filePath).then(data => {
+                if (!cancelled) {
+                    setIdleEffects({ path: filePath, data });
+                    setIdleWarnings(data.warnings);
+                }
+            }).catch(error => { if (!cancelled) setIdleWarnings([String(error)]); });
+        }
+        return () => { cancelled = true; };
+    }, [filePath, fileVersion, meshType]);
+
+    useEffect(() => {
+        if (!scene || !meshData || meshType === 'static' || !showIdleEffects || idleEffects?.path !== filePath) return;
+        const mesh = activeMeshesRef.current[0];
+        if (!mesh) return;
+        setIdleWarnings(idleEffects.data.warnings);
+        const player = playIdleEffects(scene, mesh, skeletonRef.current, idleEffects.data, filePath, message => {
+            setIdleWarnings(current => current.includes(message) ? current : [...current, message]);
+        });
+        idlePlayerRef.current = player;
+        return () => {
+            player.dispose();
+            if (idlePlayerRef.current === player) idlePlayerRef.current = null;
+        };
+    }, [scene, camera, meshData, skeletonData, idleEffects, filePath, meshType, showIdleEffects]);
+
+    useEffect(() => {
+        idlePlayerRef.current?.setSpeed(selectedAnimation && !isPlaying ? 0 : playbackSpeed);
+    }, [scene, camera, meshData, skeletonData, idleEffects, showIdleEffects, selectedAnimation, isPlaying, playbackSpeed]);
+
     // The load-time hidden set: initialSubmeshToHide plus the active gear form's
     // mCharacterSubmeshesToHide/Show delta (hide first, show wins). Forms are DELTAS over the
     // baseline, not full states — the base BIN already hides every form's meshes at load,
@@ -1633,6 +1673,22 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                             checked={showSkeleton}
                             onChange={setShowSkeleton}
                         />
+                    )}
+                    {meshType !== 'static' && (
+                        <MpToggleRow
+                            label="Idle particles"
+                            desc={idleEffects ? `${idleEffects.data.attachments.length} attached effects` : idleWarnings.length ? 'Effects unavailable' : 'Loading effects…'}
+                            checked={showIdleEffects}
+                            onChange={setShowIdleEffects}
+                        />
+                    )}
+                    {showIdleEffects && idleWarnings.length > 0 && (
+                        <div className="mp-field" role="status">
+                            <span className="mp-field__label">Some idle particles could not be previewed</span>
+                            <details><summary>{idleWarnings.length} notices</summary>
+                                {idleWarnings.map(message => <p key={message}>{message}</p>)}
+                            </details>
+                        </div>
                     )}
                 </MpPopup>
             )}
