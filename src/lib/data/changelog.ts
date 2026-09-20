@@ -45,6 +45,19 @@ export interface VersionChangelog {
  */
 export const CHANGELOG: VersionChangelog[] = [
     {
+        version: '3.0.2',
+        date: 'September 2026',
+        headline: 'Flint 3.0.2',
+        entries: [
+            {
+                icon: 'file-edit',
+                tag: 'fix',
+                title: 'BIN editor refreshes after Replace All',
+                description: 'Replacing matches from the project search sidebar now reloads changed BINs immediately, including linked files outside the project.',
+            },
+        ],
+    },
+    {
         version: '2.9.4',
         date: 'August 2026 (Beta)',
         headline: 'Flint 2.9.4 (Beta)',

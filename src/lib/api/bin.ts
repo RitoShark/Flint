@@ -1,4 +1,5 @@
 import { invokeCommand, invokeRaw, utf8Decoder } from './core';
+import { useAppMetadataStore } from '../stores/appMetadataStore';
 
 export async function convertBinToText(binData: Uint8Array): Promise<string> {
     return invokeRaw('convert_bin_bytes_to_text', binData);
@@ -93,6 +94,7 @@ export interface BinSearchResult {
 
 export interface BinReplaceResult {
     files_changed: number;
+    changed_paths: string[];
     replacements: number;
     failed: string[];
 }
@@ -118,7 +120,18 @@ export async function replaceInBins(
     replacement: string,
     options: BinSearchOptions,
 ): Promise<BinReplaceResult> {
-    return invokeCommand('replace_in_bins', { paths, query, replacement, options });
+    const result = await invokeCommand<BinReplaceResult>('replace_in_bins', { paths, query, replacement, options });
+    // The backend suppresses watcher echoes for these writes. Bump versions explicitly
+    // so mounted editors reload and cached sessions are invalidated, including linked BINs.
+    const store = useAppMetadataStore.getState();
+    store.applyFileEvent({
+        versionBumps: result.changed_paths,
+        statusSets: result.changed_paths.map((key) => ({
+            key,
+            status: store.getFileStatus(key) === 'new' ? 'new' : 'modified',
+        })),
+    });
+    return result;
 }
 
 export interface ToonRampInstall {

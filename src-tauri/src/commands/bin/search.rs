@@ -46,6 +46,8 @@ pub struct SearchResult {
 #[derive(Serialize, Default, Debug)]
 pub struct ReplaceResult {
     pub files_changed: usize,
+    /// Successfully written files; the caller must refresh them because write echoes are suppressed.
+    pub changed_paths: Vec<String>,
     pub replacements: usize,
     pub failed: Vec<String>,
 }
@@ -306,6 +308,7 @@ pub async fn replace_in_bins(
                         continue;
                     }
                     result.files_changed += 1;
+                    result.changed_paths.push(path.clone());
                     result.replacements += count;
                 }
                 Err(e) => result.failed.push(format!("{path}: {e}")),
