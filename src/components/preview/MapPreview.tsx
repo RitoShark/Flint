@@ -19,7 +19,7 @@ import '@babylonjs/core/Culling/ray';
 import * as api from '../../lib/api';
 import { createEngine } from '../../lib/babylon/engine';
 import {
-    buildMapMeshes,
+    buildMapMeshesAsync,
     MAP_VARIANTS,
     BARON_STAGES,
     layerVisibleForVariant,
@@ -34,7 +34,10 @@ import {
     type MapEnv,
 } from '../../lib/babylon/mapTerrainMaterial';
 import * as paint from '../../lib/babylon/paintEngine';
-import { createUvPass, type UvPass } from '../../lib/babylon/uvPaintPass';
+import { MapPainter, uploadPaintPatches, type MapPaintSurface } from '../../lib/babylon/mapPainter';
+import { PaintHistory } from '../../lib/babylon/paintStroke';
+import { loadBatches, waitForLoad, type MapLoadProgress } from '../../lib/babylon/mapLoading';
+import { MapLoadingBar } from './MapLoadingBar';
 
 /** Riot's AUTHORED texture address-mode enum -> Babylon.
  *
@@ -188,10 +191,7 @@ const overlay: React.CSSProperties = {
     position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
     color: '#ddd', font: '14px system-ui', pointerEvents: 'none', textAlign: 'center',
 };
-const badge: React.CSSProperties = {
-    position: 'absolute', top: 8, left: 8, color: '#aaa', font: '12px system-ui',
-    background: 'rgba(0,0,0,0.4)', padding: '2px 8px', borderRadius: 4, pointerEvents: 'none',
-};
+
 
 function useDraggable() {
     const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
@@ -232,11 +232,20 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
     // Compressed upload needs the S3TC extension. Without it every entry comes
     // back as RGBA instead, which is slower but renders identically.
     const preferCompressedRef = useRef(true);
-    const paintBufRef = useRef<Map<string, { texs: RawTexture[]; rgba: Uint8Array; orig: Uint8Array; w: number; h: number }>>(new Map());
+    const paintBufRef = useRef<Map<string, MapPaintSurface>>(new Map());
     const dataRef = useRef<api.MapPreviewData | null>(null);
     const meshByBabylonRef = useRef<Map<Mesh, BuiltMapMesh>>(new Map());
     const hoverTintRef = useRef<{ mesh: Mesh; prev: Color3 } | null>(null);
     const buildGenRef = useRef(0);
+    const loadAbortRef = useRef<AbortController | null>(null);
+    const paintReadyRef = useRef(false);
+    const saveBusyRef = useRef(false);
+    const [paintPreparing, setPaintPreparing] = useState(false);
+    const [paintRetry, setPaintRetry] = useState(0);
+    const [paintError, setPaintError] = useState<string | null>(null);
+    const [loadProgress, setLoadProgress] = useState<MapLoadProgress>(() => ({
+        stage: 'Reading map', done: 0, total: null, startedAt: Date.now(), updatedAt: Date.now(),
+    }));
 
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -264,6 +273,9 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
     });
     const [brushSize, setBrushSize] = useState(40);
     const [eyedrop, setEyedrop] = useState(false);
+    const [smudge, setSmudge] = useState(false);
+    const smudgeRef = useRef(false);
+    useEffect(() => { smudgeRef.current = smudge; }, [smudge]);
     const [eraser, setEraser] = useState(false);
     const eraserRef = useRef(false);
     useEffect(() => { eraserRef.current = eraser; }, [eraser]);
@@ -271,18 +283,14 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
     const onlyThisMeshRef = useRef(true);
     useEffect(() => { onlyThisMeshRef.current = onlyThisMesh; }, [onlyThisMesh]);
     const [painting, setPainting] = useState(false);
-    const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(null);
-    const cursorPosRef = useRef<{ x: number; y: number } | null>(null);
+    const paintCursorRef = useRef<HTMLDivElement | null>(null);
     const paintModeRef = useRef(false);
     const brushRef = useRef(brush);
     const brushSizeRef = useRef(brushSize);
     const eyedropRef = useRef(false);
     const dirtyTexRef = useRef<Set<string>>(new Set());
-    const uvPassRef = useRef<UvPass | null>(null);
-    const strokeSnapRef = useRef<Map<string, Uint8Array>>(new Map());
-    const strokeMaskRef = useRef<Map<string, Float32Array>>(new Map());
-    const undoStackRef = useRef<Array<Map<string, Uint8Array>>>([]);
-    const redoStackRef = useRef<Array<Map<string, Uint8Array>>>([]);
+    const painterRef = useRef<MapPainter | null>(null);
+    const historyRef = useRef(new PaintHistory());
     const [canUndo, setCanUndo] = useState(false);
     const [canRedo, setCanRedo] = useState(false);
     useEffect(() => { paintModeRef.current = paintMode; }, [paintMode]);
@@ -473,19 +481,43 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
     const buildScene = useCallback(async () => {
         const scene = sceneRef.current, camera = cameraRef.current;
         if (!scene || !camera) return;
+        loadAbortRef.current?.abort();
+        const controller = new AbortController();
+        loadAbortRef.current = controller;
+        const { signal } = controller;
         const gen = ++buildGenRef.current;
-        setLoading(true); setError(null);
+        const current = () => gen === buildGenRef.current && sceneRef.current === scene && !scene.isDisposed && !signal.aborted;
+        const startedAt = Date.now();
+        const progress = (stage: string, done = 0, total: number | null = null) => {
+            if (current()) setLoadProgress({ stage, done, total, startedAt, updatedAt: Date.now() });
+        };
+        setLoading(true); setError(null); setPaintMode(false);
+        paintReadyRef.current = false;
+        progress('Reading map');
         try {
-            const data = await api.loadMapPreview(projectPath);
-            if (gen !== buildGenRef.current || !sceneRef.current) return;
+            const data = await waitForLoad(api.loadMapPreview(projectPath), signal, 'Map geometry');
+            if (!current()) return;
             dataRef.current = data;
 
             hoverTintRef.current = null;
             setHoverInfo(null);
             meshesRef.current.forEach(m => { m.material?.dispose(); m.dispose(); });
             meshesRef.current = [];
+            builtRef.current = [];
+            setBuilt([]);
+            texCacheRef.current.forEach(t => t.dispose());
+            texCacheRef.current.clear();
+            lightmapCacheRef.current.forEach(t => t?.dispose());
+            lightmapCacheRef.current.clear();
+            paintBufRef.current.clear();
+            dirtyTexRef.current.clear();
+            painterRef.current?.invalidate();
+            historyRef.current.clear();
+            setCanUndo(false); setCanRedo(false);
+            setPinnedInfo(null);
+            progress('Building map meshes', 0, data.submeshes.length);
 
-            const builtMeshes = buildMapMeshes(
+            const builtMeshes = await buildMapMeshesAsync(
                 {
                     positions: data.positions,
                     normals: data.normals,
@@ -495,8 +527,9 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                     submeshes: data.submeshes,
                     materials: data.materials,
                 },
-                scene,
+                scene, signal, (done, total) => progress('Building map meshes', done, total),
             );
+            if (!current()) { builtMeshes.forEach(b => b.mesh.dispose()); return; }
             meshesRef.current = builtMeshes.map(b => b.mesh);
             builtRef.current = builtMeshes;
             meshByBabylonRef.current = new Map(builtMeshes.map(b => [b.mesh, b]));
@@ -553,58 +586,39 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
 
             const uniqueTextures = [...byTexture.values()];
             const uniquePaths = [...new Set(uniqueTextures.map(t => t.path))];
-            setStatus(
-                `${data.variant} · ${builtMeshes.length} meshes · loading ${uniquePaths.length} textures`,
-            );
-            setLoading(false);
-
-            // Every model on a League map is baked-lit, and the atlas is named by the
-            // GEOMETRY, not the materials bin. Without it a surface renders as raw
-            // albedo - far brighter and flatter than the game.
             const lightmapPaths = [...new Set(
                 builtMeshes.map(b => b.lightmap).filter((p): p is string => !!p),
             )];
-
-            // ONE round trip for the whole variant. This used to be one IPC call per
-            // texture at concurrency 4, each decoding to RGBA: 192 calls and 585 MB
-            // on the wire for Bilgewater, against 105 MB of compressed blocks.
-            //
-            // The atlases go in a SECOND call rather than the same one: they are
-            // 2048x2048 BC3 apiece and would double the first payload, holding the
-            // whole map grey until both finished.
-            void (async () => {
-                try {
-                    const entries = await api.loadMapTextures(
-                        projectPath, uniquePaths, preferCompressedRef.current,
-                    );
-                    if (gen !== buildGenRef.current || !sceneRef.current) return;
-                    const byPath = new Map<string, api.MapTextureEntry>();
-                    uniquePaths.forEach((path, i) => byPath.set(path, entries[i]));
-                    applyEntries(uniqueTextures, byPath);
-                    setStatus(
-                        `${data.variant} · ${builtMeshes.length} meshes · ${uniquePaths.length} textures`
-                        + (lightmapPaths.length ? ' · baking light' : ''),
-                    );
-                    if (!lightmapPaths.length) return;
-
-                    const lmEntries = await api.loadMapTextures(
-                        projectPath, lightmapPaths, preferCompressedRef.current,
-                    );
-                    if (gen !== buildGenRef.current || !sceneRef.current) return;
-                    const lmByPath = new Map<string, api.MapTextureEntry>();
-                    lightmapPaths.forEach((path, i) => lmByPath.set(path, lmEntries[i]));
-                    const lit = applyTerrainLighting(builtMeshes, lmByPath, data.env);
-                    setStatus(
-                        `${data.variant} · ${builtMeshes.length} meshes · ${uniquePaths.length} textures`
-                        + ` · ${lit} baked-lit`,
-                    );
-                } catch (e) {
-                    console.error('[map-tex] batch failed', e);
-                    setStatus(`${data.variant} · ${builtMeshes.length} meshes · textures failed`);
-                }
-            })();
+            let missing = 0;
+            progress('Loading textures', 0, uniquePaths.length);
+            await loadBatches(uniquePaths, preferCompressedRef.current ? 8 : 2, signal,
+                paths => api.loadMapTextures(projectPath, paths, preferCompressedRef.current),
+                (paths, entries, done) => {
+                    if (!current()) return;
+                    const byPath = new Map(paths.map((path, i) => [path, entries[i]]));
+                    missing += entries.filter(e => e.kind === 'missing').length;
+                    applyEntries(uniqueTextures.filter(t => byPath.has(t.path)), byPath);
+                    progress('Loading textures', done, uniquePaths.length);
+                }, 'Map textures');
+            let lit = 0;
+            progress('Loading baked lighting', 0, lightmapPaths.length);
+            await loadBatches(lightmapPaths, preferCompressedRef.current ? 4 : 2, signal,
+                paths => api.loadMapTextures(projectPath, paths, preferCompressedRef.current),
+                (paths, entries, done) => {
+                    if (!current()) return;
+                    const byPath = new Map(paths.map((path, i) => [path, entries[i]]));
+                    missing += entries.filter(e => e.kind === 'missing').length;
+                    lit += applyTerrainLighting(builtMeshes.filter(b => !!b.lightmap && byPath.has(b.lightmap)), byPath, data.env);
+                    progress('Loading baked lighting', done, lightmapPaths.length);
+                }, 'Baked lighting');
+            if (!current()) return;
+            setStatus(`${data.variant} · ${builtMeshes.length} meshes · ${uniquePaths.length} textures · ${lit} baked-lit`
+                + (missing ? ` · ${missing} missing textures` : ''));
+            progress('Ready', 1, 1);
+            setLoading(false);
         } catch (e) {
-            setError((e as Error).message || 'Failed to load map');
+            if (!current()) return;
+            setError(e instanceof Error ? e.message : String(e));
             setLoading(false);
         }
     }, [projectPath, applyEntries, applyTerrainLighting, applyVisibility]);
@@ -682,7 +696,6 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         // itself change the view matrix, so this does not re-enter.
         camera.onViewMatrixChangedObservable.add(rescalePan);
 
-        uvPassRef.current = createUvPass(scene);
 
         const light = new HemisphericLight('ambient', new Vector3(0, 1, 0), scene);
         // Zero: a baked-lit mesh leaves `unlit`, so any real light here would ADD a
@@ -697,163 +710,56 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         let hoverDirty = false;
         let lastHoverMesh: Mesh | null = null;
         let lastHoverKey = '';
-        let paintDown = false;
-
-        const paintScreenAt = (px: number, py: number) => {
-            const pick = scene.pick(px, py);
-            if (!pick?.hit || !pick.pickedMesh) return;
-            const pickedBuilt = meshByBabylonRef.current.get(pick.pickedMesh as Mesh);
-
-            if (eyedropRef.current) {
-                const uv = pick.getTextureCoordinates?.();
-                const eEntry = pickedBuilt?.texturePath ? paintBufRef.current.get(pickedBuilt.texturePath) : undefined;
-                if (uv && eEntry) {
-                    const tx = uv.x * eEntry.w, ty = uv.y * eEntry.h;
-                    const i = (Math.min(eEntry.h - 1, Math.max(0, Math.floor(ty))) * eEntry.w
-                        + Math.min(eEntry.w - 1, Math.max(0, Math.floor(tx)))) * 4;
-                    setBrush(b => ({ ...b, color: [eEntry.rgba[i], eEntry.rgba[i + 1], eEntry.rgba[i + 2]] }));
-                    setEyedrop(false);
-                }
-                return;
-            }
-
-            const radiusPx = brushSizeRef.current;
-            const b = brushRef.current;
-            const hsl = engine.getHardwareScalingLevel();
-            const rpx = px / hsl, rpy = py / hsl, rRad = radiusPx / hsl;
-
-            let pass = uvPassRef.current;
-            if (pass && (pass.width() !== engine.getRenderWidth() || pass.height() !== engine.getRenderHeight())) {
-                pass.dispose();
-                pass = uvPassRef.current = createUvPass(scene);
-            }
-            if (!pass) return;
-
-            const onlyTex = onlyThisMeshRef.current ? pickedBuilt?.texturePath ?? null : null;
-            const texPaths: string[] = [];
-            const texIndex = new Map<string, number>();
-            const groups: { texId: number; meshes: Mesh[] }[] = [];
-            for (const bm of builtRef.current) {
-                if (!bm.texturePath || bm.mesh.isDisposed() || !bm.mesh.isEnabled()) continue;
-                if (!paintBufRef.current.has(bm.texturePath)) continue;
-                if (onlyTex && bm.texturePath !== onlyTex) continue;
-                let id = texIndex.get(bm.texturePath);
-                if (id === undefined) {
-                    id = texPaths.length; texPaths.push(bm.texturePath); texIndex.set(bm.texturePath, id);
-                    groups.push({ texId: id, meshes: [] });
-                }
-                groups[id].meshes.push(bm.mesh);
-            }
-            if (!groups.length) return;
-            pass.renderGroups(groups);
-
-            const x0 = Math.max(0, Math.floor(rpx - rRad));
-            const y0 = Math.max(0, Math.floor(rpy - rRad));
-            const x1 = Math.min(pass.width() - 1, Math.ceil(rpx + rRad));
-            const y1 = Math.min(pass.height() - 1, Math.ceil(rpy + rRad));
-            const rw = x1 - x0 + 1, rh = y1 - y0 + 1;
-            if (rw <= 0 || rh <= 0) return;
-            const region = pass.read(x0, y0, rw, rh);
-            if (!region) return;
-
-            const decode = (rx: number, ry: number) => {
-                if (rx < 0 || rx >= rw || ry < 0 || ry >= rh) return null;
-                const o = (ry * rw + rx) * 4;
-                if (region[o + 3] <= 0) return null;
-                const id = Math.round(region[o + 2]);
-                const texPath = texPaths[id];
-                if (!texPath) return null;
-                const entry = paintBufRef.current.get(texPath);
-                if (!entry) return null;
-                return { texPath, entry, tx: region[o] * entry.w, ty: (1 - region[o + 1]) * entry.h };
-            };
-
-            const touched = new Set<string>();
-            for (let ry = 0; ry < rh; ry++) {
-                for (let rx = 0; rx < rw; rx++) {
-                    const d = decode(rx, ry);
-                    if (!d) continue;
-                    const sx = x0 + rx, sy = y0 + ry;
-                    const sd = Math.hypot(sx - rpx, sy - rpy);
-                    if (sd > rRad) continue;
-                    const f = paint.falloff(sd, rRad, b.hardness);
-                    if (f <= 0) continue;
-                    const { texPath, entry } = d;
-                    if (!strokeSnapRef.current.has(texPath)) {
-                        strokeSnapRef.current.set(texPath, new Uint8Array(entry.rgba));
-                    }
-                    let mask = strokeMaskRef.current.get(texPath);
-                    if (!mask) { mask = new Float32Array(entry.w * entry.h); strokeMaskRef.current.set(texPath, mask); }
-                    const SEAM = 24;
-                    const right = decode(rx + 1, ry), down = decode(rx, ry + 1);
-                    let span = 1.5;
-                    if (right && right.texPath === texPath) {
-                        const g = Math.hypot(right.tx - d.tx, right.ty - d.ty);
-                        if (g <= SEAM) span = Math.max(span, g);
-                    }
-                    if (down && down.texPath === texPath) {
-                        const g = Math.hypot(down.tx - d.tx, down.ty - d.ty);
-                        if (g <= SEAM) span = Math.max(span, g);
-                    }
-                    const dabR = Math.min(span * 0.7, SEAM);
-                    paint.stampMask(mask, entry.w, entry.h, d.tx, d.ty, dabR, 1, b.opacity, b.flow * f);
-                    touched.add(texPath);
-                }
-            }
-            for (const texPath of touched) {
-                const entry = paintBufRef.current.get(texPath)!;
-                const mask = strokeMaskRef.current.get(texPath)!;
-                const base0 = strokeSnapRef.current.get(texPath)!;
-                if (eraserRef.current) {
-                    paint.compositeErase(entry.rgba, base0, entry.orig, mask, entry.w, entry.h);
-                } else {
-                    paint.compositeMask(entry.rgba, base0, mask, entry.w, entry.h, b.mode, b.color);
-                }
-                entry.texs.forEach(t => t.update(entry.rgba));
-                dirtyTexRef.current.add(texPath);
+        const painter = new MapPainter(scene, engine, () => builtRef.current, () => paintBufRef.current,
+            bm => texCacheRef.current.get(textureKey(bm.texturePath || '', bm.addressU, bm.addressV)),
+            surface => {
+                for (const [path, entry] of paintBufRef.current) if (entry === surface) { dirtyTexRef.current.add(path); break; }
+            },
+            patches => {
+                historyRef.current.commit(patches);
+                setPainting(false);
+                setCanUndo(historyRef.current.undo.length > 0);
+                setCanRedo(historyRef.current.redo.length > 0);
+            },
+            color => { setBrush(b => ({ ...b, color })); setEyedrop(false); },
+        );
+        painterRef.current = painter;
+        const point = (e: PointerEvent) => {
+            const rect = canvas.getBoundingClientRect();
+            return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        };
+        const onPaintDown = (e: PointerEvent) => {
+            if (!paintModeRef.current || e.button !== 0 || !paintReadyRef.current || saveBusyRef.current) return;
+            if (painter.begin(point(e), {
+                radius: brushSizeRef.current, brush: brushRef.current, onlyMesh: onlyThisMeshRef.current,
+                tool: smudgeRef.current ? 'smudge' : eraserRef.current ? 'eraser' : 'brush', eyedrop: eyedropRef.current,
+            })) {
+                canvas.setPointerCapture(e.pointerId);
+                setPainting(true);
             }
         };
-
-        const lastScreenRef = { x: 0, y: 0, has: false };
-        const paintAtCursor = () => {
-            const px = scene.pointerX, py = scene.pointerY;
-            if (eyedropRef.current) { paintScreenAt(px, py); return; }
-            if (!lastScreenRef.has) { lastScreenRef.x = px; lastScreenRef.y = py; lastScreenRef.has = true; }
-            const r = brushSizeRef.current;
-            for (const [sx, sy] of paint.strokeDabs([lastScreenRef.x, lastScreenRef.y], [px, py], r)) {
-                paintScreenAt(sx, sy);
+        const onPaintMove = (e: PointerEvent) => {
+            if (!paintModeRef.current) return;
+            const p = point(e), cursor = paintCursorRef.current, radius = brushSizeRef.current;
+            if (cursor) { cursor.style.display = 'block'; cursor.style.transform = `translate(${p.x - radius}px, ${p.y - radius}px)`; }
+            if (painter.active) {
+                if ((e.buttons & 1) === 0) painter.end(p);
+                else painter.move(p);
             }
-            lastScreenRef.x = px; lastScreenRef.y = py;
         };
-        const resetStroke = () => { lastScreenRef.has = false; };
+        const onPaintUp = (e: PointerEvent) => { if (e.button === 0) painter.end(point(e)); };
+        const onPaintCancel = () => painter.end();
+        const onPaintLeave = () => { if (paintCursorRef.current) paintCursorRef.current.style.display = 'none'; };
+        canvas.addEventListener('pointerdown', onPaintDown);
+        canvas.addEventListener('pointermove', onPaintMove);
+        canvas.addEventListener('pointerup', onPaintUp);
+        canvas.addEventListener('pointercancel', onPaintCancel);
+        canvas.addEventListener('lostpointercapture', onPaintCancel);
+        canvas.addEventListener('pointerleave', onPaintLeave);
+        window.addEventListener('blur', onPaintCancel);
 
         scene.onPointerObservable.add((pi) => {
-            if (paintModeRef.current) {
-                cursorPosRef.current = { x: scene.pointerX, y: scene.pointerY };
-                if (pi.type === PointerEventTypes.POINTERDOWN) {
-                    paintDown = true;
-                    resetStroke();
-                    strokeSnapRef.current = new Map();
-                    strokeMaskRef.current = new Map();
-                    setPainting(true);
-                    paintAtCursor();
-                } else if (pi.type === PointerEventTypes.POINTERMOVE) {
-                    if (paintDown) paintAtCursor();
-                } else if (pi.type === PointerEventTypes.POINTERUP) {
-                    paintDown = false;
-                    resetStroke();
-                    setPainting(false);
-                    if (strokeSnapRef.current.size) {
-                        undoStackRef.current.push(strokeSnapRef.current);
-                        if (undoStackRef.current.length > 30) undoStackRef.current.shift();
-                        redoStackRef.current = [];
-                        strokeSnapRef.current = new Map();
-                        setCanUndo(true);
-                        setCanRedo(false);
-                    }
-                }
-                return;
-            }
+            if (paintModeRef.current) return;
             // Hover identification ray-casts the WHOLE map on the CPU, down to
             // triangles. Doing that on every pointer move of a camera drag is what
             // made right-click panning crawl: the pick costs more than the frame it
@@ -912,7 +818,16 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
 
         let errs = 0;
         engine.runRenderLoop(() => {
-            try { pickHover(); scene.render(); }
+            try {
+                if (paintModeRef.current && paintReadyRef.current && !saveBusyRef.current) {
+                    try { painter.frame(); }
+                    catch (e) {
+                        painter.interrupt(); paintReadyRef.current = false;
+                        setPaintError(`Paint stopped: ${e instanceof Error ? e.message : String(e)}. Retry to prepare the textures again.`);
+                    }
+                }
+                pickHover(); scene.render();
+            }
             catch (e) { if (++errs <= 5) console.error('[map-render] frame threw:', e); }
         });
         const onResize = () => engine.resize();
@@ -929,14 +844,23 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             ro.disconnect();
             window.removeEventListener('resize', onResize);
             canvas.removeEventListener('contextmenu', handleContextMenu);
+            painter.dispose();
+            painterRef.current = null;
+            canvas.removeEventListener('pointerdown', onPaintDown);
+            canvas.removeEventListener('pointermove', onPaintMove);
+            canvas.removeEventListener('pointerup', onPaintUp);
+            canvas.removeEventListener('pointercancel', onPaintCancel);
+            canvas.removeEventListener('lostpointercapture', onPaintCancel);
+            canvas.removeEventListener('pointerleave', onPaintLeave);
+            window.removeEventListener('blur', onPaintCancel);
             hoverTintRef.current = null;
             texCacheRef.current.forEach(t => t.dispose());
             texCacheRef.current.clear();
             paintBufRef.current.clear();
-            uvPassRef.current?.dispose();
-            uvPassRef.current = null;
             meshesRef.current.forEach(m => { m.material?.dispose(); m.dispose(); });
             meshesRef.current = [];
+            loadAbortRef.current?.abort();
+            ++buildGenRef.current;
             engine.dispose();
             engineRef.current = null;
             sceneRef.current = null;
@@ -948,120 +872,124 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         const cam = cameraRef.current;
         const canvas = canvasRef.current;
         if (!cam || !canvas) return;
-        if (paintMode) cam.detachControl();
-        else cam.attachControl(canvas, true);
+        if (sceneRef.current) {
+            sceneRef.current.skipPointerDownPicking = paintMode;
+            sceneRef.current.skipPointerUpPicking = paintMode;
+        }
+        if (paintMode) {
+            cam.detachControl();
+            cam.inertialAlphaOffset = cam.inertialBetaOffset = cam.inertialRadiusOffset = 0;
+            cam.inertialPanningX = cam.inertialPanningY = 0;
+        } else {
+            painterRef.current?.interrupt();
+            cam.attachControl(canvas, true);
+        }
     }, [paintMode]);
 
     // Painting needs CPU pixels, and a compressed texture has none. The buffers are
     // built only when paint mode is actually entered: the display path uploads ~105 MB
     // of blocks, while the RGBA these need is ~585 MB for one Bilgewater variant.
     useEffect(() => {
-        if (!paintMode) return;
-        let cancelled = false;
+        painterRef.current?.invalidate();
+        paintReadyRef.current = false;
+        if (!paintMode || loading) return;
+        const controller = new AbortController();
+        const { signal } = controller;
+        setPaintPreparing(true); setPaintError(null);
         void (async () => {
             const wanted = new Map<string, { path: string; u: number; v: number; mats: MapMat[] }>();
             for (const bm of builtRef.current) {
                 if (!bm.texturePath || bm.mesh.isDisposed() || !bm.mesh.isEnabled()) continue;
-                if (paintBufRef.current.has(bm.texturePath)) continue;
                 const key = textureKey(bm.texturePath, bm.addressU, bm.addressV);
                 const mat = bm.mesh.material as MapMat | null;
                 if (!mat) continue;
+                const existing = paintBufRef.current.get(bm.texturePath);
+                if (existing) {
+                    let tex = existing.texs.find(t => t.name === key);
+                    if (!tex) {
+                        texCacheRef.current.get(key)?.dispose();
+                        tex = RawTexture.CreateRGBATexture(existing.rgba, existing.w, existing.h, sceneRef.current!, true, false, Texture.TRILINEAR_SAMPLINGMODE);
+                        tex.wrapU = addressMode(bm.addressU); tex.wrapV = addressMode(bm.addressV); tex.hasAlpha = true; tex.name = key;
+                        existing.texs.push(tex); texCacheRef.current.set(key, tex);
+                    }
+                    bindDiffuse(mat, tex);
+                    continue;
+                }
                 const slot = wanted.get(key);
                 if (slot) slot.mats.push(mat);
                 else wanted.set(key, { path: bm.texturePath, u: bm.addressU, v: bm.addressV, mats: [mat] });
             }
             const slots = [...wanted.values()];
             const paths = [...new Set(slots.map(sl => sl.path))];
-            if (!paths.length) return;
-            setStatus(`Preparing ${paths.length} textures for painting…`);
+            const startedAt = Date.now();
+            setLoadProgress({ stage: 'Preparing paint textures', done: 0, total: paths.length, startedAt, updatedAt: Date.now() });
             try {
-                // preferCompressed false: the stroke writes into these pixels.
-                const entries = await api.loadMapTextures(projectPath, paths, false);
-                if (cancelled || !sceneRef.current) return;
-                const byPath = new Map<string, api.MapTextureEntry>();
-                paths.forEach((path, i) => byPath.set(path, entries[i]));
-                const sc = sceneRef.current;
-                for (const { path, u, v, mats } of slots) {
-                    const entry = byPath.get(path);
-                    if (!entry || entry.kind !== 'rgba') continue;
-                    const key = textureKey(path, u, v);
-                    texCacheRef.current.get(key)?.dispose();
-                    const tex = RawTexture.CreateRGBATexture(
-                        entry.rgba, entry.width, entry.height, sc,
-                        /* generateMipMaps */ true,
-                        /* invertY */ false,
-                        Texture.TRILINEAR_SAMPLINGMODE,
-                    );
-                    tex.wrapU = addressMode(u);
-                    tex.wrapV = addressMode(v);
-                    tex.hasAlpha = true;
-                    tex.name = key;
-                    texCacheRef.current.set(key, tex);
-                    for (const mat of mats) bindDiffuse(mat, tex);
-                    const buf = paintBufRef.current.get(path);
-                    if (buf) {
+                await loadBatches(paths, 2, signal, batch => api.loadMapTextures(projectPath, batch, false), (batch, entries, done) => {
+                    const sc = sceneRef.current;
+                    if (!sc || sc.isDisposed) return;
+                    if (entries.some(e => e.kind !== 'rgba')) throw new Error('A paint texture could not be decoded. Check the texture files and retry.');
+                    const byPath = new Map(batch.map((path, i) => [path, entries[i]]));
+                    for (const { path, u, v, mats } of slots.filter(slot => byPath.has(slot.path))) {
+                        const entry = byPath.get(path);
+                        if (!entry || entry.kind !== 'rgba') continue;
+                        const key = textureKey(path, u, v);
+                        texCacheRef.current.get(key)?.dispose();
+                        let buf = paintBufRef.current.get(path);
+                        if (!buf) {
+                            buf = { texs: [], rgba: new Uint8Array(entry.rgba), orig: new Uint8Array(entry.rgba), w: entry.width, h: entry.height };
+                            paintBufRef.current.set(path, buf);
+                        }
+                        // Keep Babylon's context-restoration data on the live editable buffer.
+                        const tex = RawTexture.CreateRGBATexture(
+                            buf.rgba, entry.width, entry.height, sc,
+                            /* generateMipMaps */ true,
+                            /* invertY */ false,
+                            Texture.TRILINEAR_SAMPLINGMODE,
+                        );
+                        tex.wrapU = addressMode(u);
+                        tex.wrapV = addressMode(v);
+                        tex.hasAlpha = true;
+                        tex.name = key;
+                        texCacheRef.current.set(key, tex);
+                        for (const mat of mats) bindDiffuse(mat, tex);
                         buf.texs.push(tex);
-                    } else {
-                        paintBufRef.current.set(path, {
-                            texs: [tex],
-                            rgba: new Uint8Array(entry.rgba),
-                            orig: new Uint8Array(entry.rgba),
-                            w: entry.width,
-                            h: entry.height,
-                        });
                     }
-                }
-                setStatus(`Ready to paint · ${paths.length} textures`);
+                    setLoadProgress({ stage: 'Preparing paint textures', done, total: paths.length, startedAt, updatedAt: Date.now() });
+                }, 'Paint textures');
+                if (signal.aborted) return;
+                painterRef.current?.invalidate();
+                paintReadyRef.current = true;
+                setStatus(`Ready to paint · ${paintBufRef.current.size} textures`);
             } catch (e) {
-                console.error('[paint] could not prepare textures', e);
-                setStatus('Could not prepare textures for painting');
+                if (signal.aborted) return;
+                setPaintError(e instanceof Error ? e.message : String(e));
+            } finally {
+                if (!signal.aborted) setPaintPreparing(false);
             }
         })();
-        return () => { cancelled = true; };
-    }, [paintMode, projectPath]);
+        return () => { controller.abort(); paintReadyRef.current = false; setPaintPreparing(false); };
+    }, [paintMode, loading, projectPath, built, activeVariant, baronStage, hiddenMeshes, paintRetry]);
 
-    useEffect(() => {
-        if (!paintMode) { setCursorPos(null); return; }
-        const id = setInterval(() => {
-            const c = cursorPosRef.current;
-            setCursorPos(c ? { x: c.x, y: c.y } : null);
-        }, 16);
-        return () => clearInterval(id);
-    }, [paintMode]);
-
-    const swapSnapshot = useCallback((snap: Map<string, Uint8Array>): Map<string, Uint8Array> => {
-        const replaced = new Map<string, Uint8Array>();
-        for (const [texPath, before] of snap) {
-            const entry = paintBufRef.current.get(texPath);
-            if (!entry) continue;
-            replaced.set(texPath, new Uint8Array(entry.rgba));
-            entry.rgba.set(before);
-            entry.texs.forEach(t => t.update(entry.rgba));
-            dirtyTexRef.current.add(texPath);
+    const swapHistory = useCallback((direction: 'undo' | 'redo') => {
+        if (painterRef.current?.active || !paintReadyRef.current || saveBusyRef.current) return;
+        const patches = historyRef.current.swap(direction);
+        const engine = engineRef.current;
+        if (engine) uploadPaintPatches(engine, patches, true);
+        for (const p of patches) for (const [path, surface] of paintBufRef.current) {
+            if (p.surface === surface) { dirtyTexRef.current.add(path); break; }
         }
-        return replaced;
+        setCanUndo(historyRef.current.undo.length > 0);
+        setCanRedo(historyRef.current.redo.length > 0);
     }, []);
-
-    const handleUndo = useCallback(() => {
-        const snap = undoStackRef.current.pop();
-        if (!snap) return;
-        redoStackRef.current.push(swapSnapshot(snap));
-        setCanUndo(undoStackRef.current.length > 0);
-        setCanRedo(true);
-    }, [swapSnapshot]);
-
-    const handleRedo = useCallback(() => {
-        const snap = redoStackRef.current.pop();
-        if (!snap) return;
-        undoStackRef.current.push(swapSnapshot(snap));
-        setCanRedo(redoStackRef.current.length > 0);
-        setCanUndo(true);
-    }, [swapSnapshot]);
+    const handleUndo = useCallback(() => swapHistory('undo'), [swapHistory]);
+    const handleRedo = useCallback(() => swapHistory('redo'), [swapHistory]);
 
     useEffect(() => {
         if (!paintMode) return;
         const onKey = (e: KeyboardEvent) => {
             if (!(e.ctrlKey || e.metaKey)) return;
+            const target = e.target as HTMLElement;
+            if (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)) return;
             const k = e.key.toLowerCase();
             if (k === 'z' && !e.shiftKey) { e.preventDefault(); handleUndo(); }
             else if (k === 'y' || (k === 'z' && e.shiftKey)) { e.preventDefault(); handleRedo(); }
@@ -1072,7 +1000,8 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
 
     const handleSavePaint = useCallback(async () => {
         const dirty = Array.from(dirtyTexRef.current);
-        if (!dirty.length || saveProgress) return;
+        if (!dirty.length || saveBusyRef.current || painterRef.current?.active || !paintReadyRef.current) return;
+        saveBusyRef.current = true;
         let written = 0; const errors: string[] = [];
         setSaveProgress({ done: 0, total: dirty.length });
         try {
@@ -1080,11 +1009,12 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 const texPath = dirty[i];
                 const entry = paintBufRef.current.get(texPath);
                 if (entry) {
-                    paint.edgeDilate(entry.rgba, entry.w, entry.h, 4);
-                    entry.texs.forEach(t => t.update(entry.rgba));
+                    const output = new Uint8Array(entry.rgba);
+                    paint.edgeDilate(output, entry.w, entry.h, 4);
                     try {
-                        await api.savePaintedTexture(projectPath, texPath, entry.rgba, entry.w, entry.h);
+                        await api.savePaintedTexture(projectPath, texPath, output, entry.w, entry.h);
                         written++;
+                        dirtyTexRef.current.delete(texPath);
                     } catch (e) {
                         errors.push(`${texPath.split(/[\\/]/).pop()}: ${(e as Error).message || e}`);
                     }
@@ -1093,9 +1023,9 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 await new Promise(r => requestAnimationFrame(() => r(null)));
             }
         } finally {
+            saveBusyRef.current = false;
             setSaveProgress(null);
         }
-        dirtyTexRef.current.clear();
         if (errors.length) console.error('[paint] save errors', errors);
         setStatus(`Saved ${written} painted texture${written === 1 ? '' : 's'}` +
             (errors.length ? `, ${errors.length} error(s)` : ''));
@@ -1165,9 +1095,11 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
     // ── Live reload via the existing `file-changed` event ────────────────────
     useEffect(() => {
         let unlisten: (() => void) | undefined;
+        let disposed = false;
         let debounce: ReturnType<typeof setTimeout> | undefined;
         void api.startPreviewWatcher(projectPath).catch(() => {});
         listen<{ path: string; kind: string }>('file-changed', (ev) => {
+            if (paintModeRef.current || saveBusyRef.current || dirtyTexRef.current.size) return;
             const p = ev.payload.path.toLowerCase();
             if (debounce) clearTimeout(debounce);
             debounce = setTimeout(() => {
@@ -1177,8 +1109,8 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                     void reloadChangedTexture(p);
                 }
             }, 150);
-        }).then(u => { unlisten = u; });
-        return () => { if (debounce) clearTimeout(debounce); unlisten?.(); };
+        }).then(u => { if (disposed) u(); else unlisten = u; });
+        return () => { disposed = true; if (debounce) clearTimeout(debounce); unlisten?.(); };
     }, [projectPath, buildScene, reloadChangedTexture]);
 
     const presentVariants = MAP_VARIANTS.filter(
@@ -1206,16 +1138,14 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                          cursor: paintMode ? 'none' : 'default' }}
             />
 
-            {paintMode && cursorPos && (() => {
-                const ringColor = eyedrop ? '#5cf' : eraser ? '#f88'
+            {paintMode && (() => {
+                const ringColor = eyedrop ? '#5cf' : smudge ? '#b9a1ef' : eraser ? '#f88'
                     : `rgb(${brush.color[0]},${brush.color[1]},${brush.color[2]})`;
-                const fill = (eyedrop || eraser) ? 'transparent'
+                const fill = (eyedrop || eraser || smudge) ? 'transparent'
                     : `rgba(${brush.color[0]},${brush.color[1]},${brush.color[2]},0.28)`;
                 return (
-                    <div style={{
-                        position: 'absolute',
-                        left: cursorPos.x - brushSize,
-                        top: cursorPos.y - brushSize,
+                    <div ref={paintCursorRef} style={{
+                        position: 'absolute', display: 'none', left: 0, top: 0,
                         width: brushSize * 2,
                         height: brushSize * 2,
                         borderRadius: '50%',
@@ -1231,7 +1161,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             {!loading && !error && (
                 <Button size="sm"
                     style={{ position: 'absolute', top: 8, right: 8 }} iconOnly active={showPanel}
-                    onClick={() => setShowPanel(p => !p)}
+                    disabled={painting || !!saveProgress} onClick={() => setShowPanel(p => !p)}
                     title="Layers & variants"
                 >☰</Button>
             )}
@@ -1282,36 +1212,42 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             )}
 
             {paintMode && !loading && !error && (
-                <div style={{ ...panel, top: undefined, bottom: 12, left: 12, right: 'auto', width: 230, ...paintDrag.dragStyle }}>
+                <div style={{ ...panel, top: undefined, bottom: 70, left: 12, right: 'auto', width: 260, ...paintDrag.dragStyle }}>
                     <div style={{ ...panelHeader, cursor: 'move' }} onMouseDown={paintDrag.onHeaderMouseDown}>
                         <span style={{ fontWeight: 600, fontSize: 13 }}>Paint{painting ? ' …' : ''}</span>
                         <Button size="sm"  onClick={() => setPaintMode(false)}>×</Button>
                     </div>
                     <div style={panelBody}>
+                        <fieldset disabled={painting || !!saveProgress || paintPreparing} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
                         <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
                             <Button size="sm"
-                                style={{ flex: 1 }} active={!eraser}
-                                onClick={() => setEraser(false)}
+                                style={{ flex: 1 }} active={!eraser && !smudge}
+                                onClick={() => { setSmudge(false); setEraser(false); }}
                             >🖌 Brush</Button>
                             <Button size="sm"
                                 style={{ flex: 1 }} active={eraser}
-                                onClick={() => setEraser(true)}
+                                onClick={() => { setSmudge(false); setEraser(true); }}
                                 title="Erase painted pixels back to the original texture"
                             >🧽 Eraser</Button>
+                            <Button size="sm" style={{ flex: 1 }} active={smudge}
+                                onClick={() => { setSmudge(true); setEraser(false); setEyedrop(false); setOnlyThisMesh(false); }}
+                                title="Drag existing color across texture seams"
+                            >Smudge</Button>
                         </div>
                         <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, marginBottom: 8, cursor: 'pointer' }}>
                             <input type="checkbox" checked={onlyThisMesh} onChange={e => setOnlyThisMesh(e.target.checked)} />
-                            Only this mesh (don't paint others under the brush)
+                            Only the mesh where the stroke starts
                         </label>
                         <div style={sectionLabel}>Blend</div>
-                        <div style={{ display: 'flex', gap: 4, marginBottom: 8, opacity: eraser ? 0.4 : 1 }}>
+                        <div style={{ display: 'flex', gap: 4, marginBottom: 8, opacity: eraser || smudge ? 0.4 : 1 }}>
                             {(['Normal', 'Dodge', 'Multiply'] as paint.BlendMode[]).map(m => (
-                                <Button size="sm" key={m} disabled={eraser}
+                                <Button size="sm" key={m} disabled={eraser || smudge}
                                     style={{ flex: 1 }} active={brush.mode === m}
                                     onClick={() => setBrush(b => ({ ...b, mode: m }))}
                                 >{m}</Button>
                             ))}
                         </div>
+                        {!smudge && <>
                         <div style={sectionLabel}>Color</div>
                         <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 8 }}>
                             <span style={{
@@ -1328,10 +1264,11 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                                 title="Click the map to sample a color"
                             >{eyedrop ? 'Click to pick…' : 'Eyedropper'}</Button>
                         </div>
+                        </>}
                         {([
                             ['Size (px)', brushSize, 2, 300, (v: number) => setBrushSize(v)],
                             ['Hardness', Math.round(brush.hardness * 100), 0, 100, (v: number) => setBrush(b => ({ ...b, hardness: v / 100 }))],
-                            ['Opacity', Math.round(brush.opacity * 100), 0, 100, (v: number) => setBrush(b => ({ ...b, opacity: v / 100 }))],
+                            [smudge ? 'Strength' : 'Opacity', Math.round(brush.opacity * 100), 0, 100, (v: number) => setBrush(b => ({ ...b, opacity: v / 100 }))],
                             ['Flow', Math.round(brush.flow * 100), 0, 100, (v: number) => setBrush(b => ({ ...b, flow: v / 100 }))],
                         ] as [string, number, number, number, (v: number) => void][]).map(([label, val, min, max, set]) => (
                             <div key={label} style={{ marginBottom: 6 }}>
@@ -1353,7 +1290,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                                         background: `rgb(${p.brush.color[0]},${p.brush.color[1]},${p.brush.color[2]})`, border: '1px solid #555' }} />
                                     <Button size="sm" style={{ flex: 1, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
                                         title={`${p.brush.mode} · size ${p.size}`}
-                                        onClick={() => { setBrush(p.brush); setBrushSize(p.size); setEraser(false); }}
+                                        onClick={() => { setBrush(p.brush); setBrushSize(p.size); setEraser(false); setSmudge(false); }}
                                     >{p.name}</Button>
                                     <Button size="sm"
                                         title="Delete preset"
@@ -1371,12 +1308,12 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
 
                         <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
                             <Button size="sm" style={{ flex: 1 }}
-                                disabled={!canUndo} onClick={handleUndo} title="Undo (Ctrl+Z)">↶ Undo</Button>
+                                disabled={!canUndo || painting || paintPreparing || !!saveProgress} onClick={handleUndo} title="Undo (Ctrl+Z)">↶ Undo</Button>
                             <Button size="sm" style={{ flex: 1 }}
-                                disabled={!canRedo} onClick={handleRedo} title="Redo (Ctrl+Y)">↷ Redo</Button>
+                                disabled={!canRedo || painting || paintPreparing || !!saveProgress} onClick={handleRedo} title="Redo (Ctrl+Y)">↷ Redo</Button>
                         </div>
                         <Button size="sm" style={{ width: '100%', marginTop: 6 }} variant="success"
-                            disabled={!!saveProgress}
+                            disabled={!!saveProgress || painting || paintPreparing || !!paintError}
                             onClick={handleSavePaint}
                         >{saveProgress ? `Saving ${saveProgress.done}/${saveProgress.total}…` : 'Save painted textures'}</Button>
                         {saveProgress && (
@@ -1390,8 +1327,9 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                             </div>
                         )}
                         <div style={{ fontSize: 10, color: '#888', marginTop: 6 }}>
-                            Left-drag to paint. Camera is locked while painting. Ctrl+Z undo.
+                            {paintPreparing ? 'Preparing textures…' : smudge ? 'Drag across a seam to blend existing colors. Ctrl+Z undo.' : 'Left-drag to paint. Camera is locked while painting. Ctrl+Z undo.'}
                         </div>
+                        </fieldset>
                     </div>
                 </div>
             )}
@@ -1560,9 +1498,10 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 </div>
             )}
 
-            {loading && <div style={overlay}>Loading map…</div>}
-            {error && <div style={{ ...overlay, color: '#f88' }}>⚠️ {error}</div>}
-            {!loading && !error && <div style={badge}>{status}</div>}
+            {loading && !built.length && <div style={overlay}>{loadProgress.stage}…</div>}
+            <MapLoadingBar busy={loading || paintPreparing} progress={loadProgress}
+                error={error || (paintMode ? paintError : null)} status={status}
+                onRetry={() => { if (paintMode) setPaintRetry(n => n + 1); else void buildScene(); }} />
         </div>
     );
 };
@@ -1673,14 +1612,14 @@ const row: React.CSSProperties = {
     borderRadius: 4, cursor: 'pointer',
 };
 const hoverBar: React.CSSProperties = {
-    position: 'absolute', bottom: 0, left: 0, right: 0,
+    position: 'absolute', bottom: 34, left: 0, right: 0,
     padding: '4px 10px', background: 'rgba(20,20,20,0.92)',
     borderTop: '1px solid #333', color: '#ddd', font: '12px system-ui',
     pointerEvents: 'none', whiteSpace: 'nowrap', overflow: 'hidden',
     textOverflow: 'ellipsis',
 };
 const infoCard: React.CSSProperties = {
-    position: 'absolute', bottom: 36, left: 8, width: 300,
+    position: 'absolute', bottom: 70, left: 8, width: 300,
     background: 'rgba(24,24,24,0.97)', border: '1px solid #444', borderRadius: 8,
     boxShadow: '0 8px 24px rgba(0,0,0,0.5)', padding: 10, color: '#ddd',
     font: '13px system-ui',

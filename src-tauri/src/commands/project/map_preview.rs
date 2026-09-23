@@ -713,6 +713,12 @@ struct MapPreviewMeta {
 /// Mirrors the wire format decoded by `src/lib/api/mapPreview.ts`.
 #[tauri::command]
 pub async fn load_map_preview(project_path: String) -> Result<tauri::ipc::Response, String> {
+    tokio::task::spawn_blocking(move || load_map_preview_blocking(project_path))
+        .await
+        .map_err(|e| format!("map geometry worker failed: {e}"))?
+}
+
+fn load_map_preview_blocking(project_path: String) -> Result<tauri::ipc::Response, String> {
     let project = PathBuf::from(&project_path);
     let source = discover_map_source(&project)?;
 
@@ -913,31 +919,19 @@ pub async fn load_map_textures(
     texture_paths: Vec<String>,
     prefer_compressed: bool,
 ) -> Result<tauri::ipc::Response, String> {
-    let project = PathBuf::from(&project_path);
-    // ONCE for the whole batch. This used to run per texture, re-reading flint.json
-    // and re-scanning every content layer for each one.
-    let source = discover_map_source(&project)?;
-    let bin_dir = source
-        .materials
-        .parent()
-        .ok_or("materials bin has no parent dir")?
-        .to_string_lossy()
-        .to_string();
-
-    let mut resolved: Vec<Option<PathBuf>> = Vec::with_capacity(texture_paths.len());
-    for texture_path in &texture_paths {
-        resolved.push(
-            crate::commands::mesh::resolve_asset_path(texture_path.clone(), bin_dir.clone())
-                .await
-                .ok()
-                .map(PathBuf::from),
-        );
-    }
-
     let started = std::time::Instant::now();
     let count = texture_paths.len();
-    let out = tokio::task::spawn_blocking(move || {
+    let out = tokio::task::spawn_blocking(move || -> Result<Vec<u8>, String> {
         use rayon::prelude::*;
+        let project = PathBuf::from(&project_path);
+        let source = discover_map_source(&project)?;
+        let bin_dir = source.materials.parent()
+            .ok_or("materials bin has no parent dir")?
+            .to_string_lossy().to_string();
+        let resolved: Vec<Option<PathBuf>> = texture_paths.iter().map(|path| {
+            crate::commands::mesh::resolve_asset_path_sync(path.clone(), bin_dir.clone())
+                .ok().map(PathBuf::from)
+        }).collect();
         let entries: Vec<Vec<u8>> = resolved
             .par_iter()
             .map(|path| {
@@ -974,10 +968,10 @@ pub async fn load_map_textures(
         for entry in entries {
             out.extend_from_slice(&entry);
         }
-        out
+        Ok(out)
     })
     .await
-    .map_err(|e| format!("texture batch panicked: {e}"))?;
+    .map_err(|e| format!("texture batch panicked: {e}"))??;
 
     tracing::debug!(
         "[TIMING] map textures: {} in {:?}, {:.1} MB on the wire",

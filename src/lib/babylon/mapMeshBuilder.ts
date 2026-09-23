@@ -197,7 +197,7 @@ function groupKey(materials: Record<string, MapMaterial>, sm: SubmeshRange): str
     return `${layer}::${tex}::${sm.lightmap ?? ''}`;
 }
 
-export function buildMapMeshes(input: MapGeometryInput, scene: Scene): BuiltMapMesh[] {
+function* buildMapMeshSteps(input: MapGeometryInput, scene: Scene): Generator<BuiltMapMesh> {
     const { positions, normals: srcNormals, uvs, uvs2, indices, submeshes, materials } = input;
 
     const groups = new Map<string, SubmeshRange[]>();
@@ -214,7 +214,6 @@ export function buildMapMeshes(input: MapGeometryInput, scene: Scene): BuiltMapM
         else groups.set(key, [sm]);
     }
 
-    const out: BuiltMapMesh[] = [];
 
     for (const [key, group] of groups) {
         let totalVerts = 0;
@@ -294,7 +293,7 @@ export function buildMapMeshes(input: MapGeometryInput, scene: Scene): BuiltMapM
         const replaceKeys = [...new Set(group.map(sm => replacementKey(sm.name)))];
         const baronStage =
             group.map(sm => classifyBaronStage(sm.name)).find(s => s !== null) ?? null;
-        out.push({
+        yield {
             mesh,
             material,
             texturePath,
@@ -306,10 +305,37 @@ export function buildMapMeshes(input: MapGeometryInput, scene: Scene): BuiltMapM
             replaceKeys,
             baronStage,
             spans,
-        });
+        };
     }
+}
 
-    return out;
+export function buildMapMeshes(input: MapGeometryInput, scene: Scene): BuiltMapMesh[] {
+    return [...buildMapMeshSteps(input, scene)];
+}
+
+export async function buildMapMeshesAsync(input: MapGeometryInput, scene: Scene, signal: AbortSignal,
+    onProgress: (done: number, total: number) => void): Promise<BuiltMapMesh[]> {
+    const result: BuiltMapMesh[] = [];
+    let done = 0;
+    try {
+        // Paint the geometry stage before entering the first CPU-heavy group.
+        await new Promise(resolve => setTimeout(resolve, 0));
+        signal.throwIfAborted();
+        for (const built of buildMapMeshSteps(input, scene)) {
+            result.push(built);
+            done += built.spans.length;
+            if (result.length % 8 === 0) {
+                onProgress(done, input.submeshes.length);
+                await new Promise(resolve => setTimeout(resolve, 0));
+                signal.throwIfAborted();
+            }
+        }
+        onProgress(done, input.submeshes.length);
+        return result;
+    } catch (error) {
+        result.forEach(b => b.mesh.dispose());
+        throw error;
+    }
 }
 
 /** Resolve a picked faceId (triangle index in a merged mesh) to the submesh

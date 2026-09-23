@@ -4,6 +4,7 @@ import { RenderTargetTexture } from '@babylonjs/core/Materials/Textures/renderTa
 import { ShaderMaterial } from '@babylonjs/core/Materials/shaderMaterial';
 import { Effect } from '@babylonjs/core/Materials/effect';
 import { Constants } from '@babylonjs/core/Engines/constants';
+import type { BaseTexture } from '@babylonjs/core/Materials/Textures/baseTexture';
 import { Color4 } from '@babylonjs/core/Maths/math.color';
 
 const SHADER_NAME = 'flintUvPaint';
@@ -26,21 +27,24 @@ function registerShader() {
         precision highp float;
         varying vec2 vUV;
         uniform float texId;
+        uniform float alphaCutoff;
+        uniform sampler2D alphaSampler;
         void main(void) {
             // R=u, G=v, B=texId (which texture this pixel belongs to), A=1
             // (A marks "surface here" vs cleared bg A=0).
+            if (alphaCutoff > 0.0 && texture2D(alphaSampler, vUV).a < alphaCutoff) discard;
             gl_FragColor = vec4(vUV.x, vUV.y, texId, 1.0);
         }`;
 }
 
 /** One texture's meshes + the id (0..N) written to the B channel for them. */
-export interface UvGroup { texId: number; meshes: Mesh[]; }
+export interface UvGroup { texId: number; meshes: Mesh[]; alphaTexture?: BaseTexture; alphaCutoff?: number }
 
 export interface UvPass {
     rtt: RenderTargetTexture;
     /** Render several texture-groups into one pass (B = texId). `through` disables
      *  depth testing so occluded/behind surfaces also write their UV. */
-    renderGroups(groups: UvGroup[], through?: boolean): void;
+    renderGroups(groups: UvGroup[], through?: boolean): boolean;
     /** Read an x,y,w,h region as RGBA floats (R=u, G=v, B=texId, A>0 = surface). */
     read(x: number, y: number, w: number, h: number): Float32Array | null;
     width(): number;
@@ -67,7 +71,8 @@ export function createUvPass(scene: Scene): UvPass {
 
     const mat = new ShaderMaterial('flint-uv-mat', scene, SHADER_NAME, {
         attributes: ['position', 'uv'],
-        uniforms: ['worldViewProjection', 'texId'],
+        uniforms: ['worldViewProjection', 'texId', 'alphaCutoff'],
+        samplers: ['alphaSampler'],
     });
     mat.backFaceCulling = false;
     mat.setFloat('texId', 0);
@@ -75,47 +80,41 @@ export function createUvPass(scene: Scene): UvPass {
     // Per-mesh texId: set the uniform just before each mesh binds, so one RTT
     // render of all meshes writes the correct texId per group (depth-tested
     // together, so only the front-most surface remains).
-    const idForMesh = new Map<Mesh, number>();
+    const groupForMesh = new Map<Mesh, UvGroup>();
     mat.onBindObservable.add((boundMesh) => {
-        const id = idForMesh.get(boundMesh as Mesh) ?? 0;
-        mat.getEffect()?.setFloat('texId', id);
+        const group = groupForMesh.get(boundMesh as Mesh);
+        const effect = mat.getEffect();
+        effect?.setFloat('texId', group?.texId ?? -1);
+        effect?.setFloat('alphaCutoff', group?.alphaTexture?.hasAlpha ? group.alphaCutoff ?? 0.5 : 0);
+        if (group?.alphaTexture) effect?.setTexture('alphaSampler', group.alphaTexture);
     });
 
     return {
         rtt,
         renderGroups(groups: UvGroup[], through = false) {
-            idForMesh.clear();
+            groupForMesh.clear();
             const all: Mesh[] = [];
-            for (const g of groups) for (const m of g.meshes) { idForMesh.set(m, g.texId); all.push(m); }
+            for (const g of groups) for (const m of g.meshes) { groupForMesh.set(m, g); all.push(m); }
             mat.disableDepthWrite = through;
             mat.depthFunction = through ? Constants.ALWAYS : 0; // 0 = engine default (LEQUAL)
             rtt.renderList = all;
             rtt.setMaterialForRendering(all, mat);
+            // First-use shader compilation can be asynchronous. Never cache an empty pass.
+            if (all.some(mesh => !mat.isReady(mesh))) return false;
             rtt.render();
+            return true;
         },
         read(x, y, rw, rh) {
-            // WebGL readPixels is synchronous; use the sync variant so a fast
-            // stroke can paint inline (the public readPixels returns a Promise
-            // for WebGPU compat). Reads the FULL RTT, then we crop the bbox.
-            const data = (rtt as unknown as {
-                _readPixelsSync(f?: number, l?: number, b?: ArrayBufferView | null, fl?: boolean, n?: boolean): ArrayBufferView | null;
-            })._readPixelsSync(undefined, undefined, undefined, false);
-            if (!data) return null;
-            const full = data as Float32Array;
+            const internal = rtt.getInternalTexture();
+            if (!internal) return null;
+            // Read only the requested rectangle. The painter caches one full view
+            // until camera/geometry changes; dabs use that CPU lookup directly.
+            const H = rtt.getSize().height;
+            const raw = engine._readTexturePixelsSync(internal, rw, rh, -1, 0,
+                new Float32Array(rw * rh * 4), false, false, x, H - y - rh) as Float32Array;
             const out = new Float32Array(rw * rh * 4);
-            const H = rtt.getSize().height, W = rtt.getSize().width;
             for (let row = 0; row < rh; row++) {
-                const sy = y + row;
-                if (sy < 0 || sy >= H) continue;
-                // readPixels is bottom-up: flip Y to top-down screen coords.
-                const srcRow = (H - 1 - sy) * W;
-                for (let col = 0; col < rw; col++) {
-                    const sx = x + col;
-                    if (sx < 0 || sx >= W) continue;
-                    const s = (srcRow + sx) * 4;
-                    const d = (row * rw + col) * 4;
-                    out[d] = full[s]; out[d + 1] = full[s + 1]; out[d + 2] = full[s + 2]; out[d + 3] = full[s + 3];
-                }
+                out.set(raw.subarray((rh - 1 - row) * rw * 4, (rh - row) * rw * 4), row * rw * 4);
             }
             return out;
         },

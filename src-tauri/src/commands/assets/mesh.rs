@@ -402,6 +402,12 @@ pub async fn resolve_asset_path(
     asset_path: String,
     bin_path: String
 ) -> Result<String, String> {
+    tokio::task::spawn_blocking(move || resolve_asset_path_sync(asset_path, bin_path))
+        .await
+        .map_err(|e| format!("asset resolver worker failed: {e}"))?
+}
+
+pub(crate) fn resolve_asset_path_sync(asset_path: String, bin_path: String) -> Result<String, String> {
     tracing::debug!("Resolving asset path: {} relative to {}", asset_path, bin_path);
 
     let bin_path_ref = std::path::Path::new(&bin_path);
