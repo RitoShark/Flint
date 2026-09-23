@@ -174,7 +174,7 @@ export const FirstTimeSetupModal: React.FC = () => {
             }
 
             const ext = await api.detectExternalApps().catch(() => ({
-                jade: null, quartz: null, ltk_manager: null, celestial: null,
+                jade: null, quartz: null, ltk_manager: null, celestial: null, ruby: null,
             }));
             const ltkFound = ext.ltk_manager;
             const celFound = ext.celestial;

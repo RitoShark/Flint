@@ -62,6 +62,7 @@ const SkinFixerModal = lazyWarm(() => import('../modals/SkinFixerModal').then(mo
 const WadAuditModal = lazyWarm(() => import('../modals/WadAuditModal').then(module => ({ default: module.WadAuditModal })));
 const CreateProjectFromWadModal = lazyWarm(() => import('../modals/CreateProjectFromWadModal').then(module => ({ default: module.CreateProjectFromWadModal })));
 const LoadManifestModal = lazyWarm(() => import('../modals/LoadManifestModal').then(module => ({ default: module.LoadManifestModal })));
+const SendToRubyModal = lazyWarm(() => import('../modals/SendToRubyModal').then(module => ({ default: module.SendToRubyModal })));
 
 function getActiveTab(state: { activeTabId: string | null; openTabs: Array<{ id: string; project: any; projectPath: string; selectedFile: string | null }> }) {
     if (!state.activeTabId) return null;
@@ -108,6 +109,7 @@ const ActiveModal: React.FC<{ activeModal: string | null }> = React.memo(({ acti
         case 'skinFixer':        return <SkinFixerModal />;
         case 'wadAudit':         return <WadAuditModal />;
         case 'createProjectFromWad': return <CreateProjectFromWadModal />;
+        case 'sendToRuby':       return <SendToRubyModal />;
         default:                 return null;
     }
 });

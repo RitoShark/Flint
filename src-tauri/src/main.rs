@@ -378,11 +378,13 @@ fn main() {
             commands::bin_split::preview_organize_vfx,
             commands::bin_split::organize_bins_vfx,
             commands::bin_split::get_vfx_filename_command,
-            // External apps commands (Jade/Quartz integration)
+            // External apps commands (Jade/Quartz/RubyRe integration)
             commands::external_apps::detect_jade_installation,
             commands::external_apps::detect_quartz_installation,
             commands::external_apps::launch_jade,
             commands::external_apps::launch_quartz,
+            commands::external_apps::detect_ruby_installation,
+            commands::external_apps::launch_ruby,
             commands::external_apps::detect_external_apps,
             // Export commands
             commands::export::repath_project_cmd,

@@ -3,6 +3,7 @@ import { Icon } from '../ui/Icon';
 import { motionDuration } from '../../lib/ui-helpers/motion';
 import React, { useCallback, useState, useMemo, useEffect } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { save } from '../../lib/api/dialog';
 import { useProjectTabStore, useWadExtractStore, useWadExplorerStore, useNavigationStore, useConfigStore, useModalStore, useNotificationStore, useFileEditorStore } from '../../lib/stores';
 import { navigationCoordinator } from '../../lib/stores/navigationCoordinator';
@@ -11,6 +12,8 @@ import { useArchiveTabStore } from '../../lib/stores/archiveTabStore';
 import type { ArchiveTab as ArchiveTabModel } from '../../lib/stores/archiveTabStore';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import * as api from '../../lib/api';
+import { projectFilePath, rubyBinCandidates } from '../../lib/rubyTargets';
+import { sendToRuby } from '../../lib/sendToRuby';
 import { sanitizeChampionName } from '../../lib/util/utils';
 import { FlintFlameMark } from '../ui/FlintFlameMark';
 import { useTranslation } from '../../lib/i18n';
@@ -59,6 +62,8 @@ const SettingsIcon: React.FC = () => (
 );
 
 const FlintLogo: React.FC = () => <FlintFlameMark size={20} />;
+
+const RUBY_RELEASES_URL = 'https://github.com/RitoShark/RubyVFX/releases';
 
 interface TabProps {
     tab: ProjectTab;
@@ -313,6 +318,8 @@ export const TitleBar: React.FC = () => {
     const [isRebuildingLoadscreen, setIsRebuildingLoadscreen] = useState(false);
     const [closingWindow, setClosingWindow] = useState(false);
     const [wadExplorerClosing, setWadExplorerClosing] = useState(false);
+    const [rubyPath, setRubyPath] = useState<string | null>(null);
+    const [isSendingToRuby, setIsSendingToRuby] = useState(false);
 
     const activeTab = useMemo(() => {
         if (!activeTabId) return null;
@@ -321,6 +328,62 @@ export const TitleBar: React.FC = () => {
 
     const currentProject = activeTab?.project || null;
     const currentProjectPath = activeTab?.projectPath || null;
+
+    // RubyRe detection is fully automatic — no configured path, just the same
+    // Start-menu shortcut / install-folder resolution Quartz's jade.rs uses.
+    // Re-checked on mount and whenever the window regains focus, so installing
+    // RubyRe while Flint is open lights the icon up without a restart.
+    useEffect(() => {
+        let cancelled = false;
+        const detect = () => {
+            api.detectRubyInstallation()
+                .then((path) => { if (!cancelled) setRubyPath(path); })
+                .catch(() => { if (!cancelled) setRubyPath(null); });
+        };
+        detect();
+
+        let unlisten: (() => void) | undefined;
+        getCurrentWindow().onFocusChanged(({ payload: focused }) => {
+            if (focused) detect();
+        }).then((fn) => { unlisten = fn; }).catch(() => {});
+
+        return () => {
+            cancelled = true;
+            unlisten?.();
+        };
+    }, []);
+
+    // What the RubyRe button sends. Flint's project files already live on disk
+    // under the project root, so a project-relative path is all it needs.
+    //   1. The .bin selected in the project, in ANY view: this used to require
+    //      the preview view, so a bin open in the file editor (or any other view)
+    //      launched RubyRe with nothing to open.
+    //   2. Otherwise the project's skin/map bins (lib/rubyTargets.ts): the one
+    //      there is, or a chooser when there are several.
+    const selectedBin = useMemo(() => {
+        const selectedFile = activeTab?.selectedFile;
+        return currentProjectPath && selectedFile && /\.bin$/i.test(selectedFile) ? selectedFile : null;
+    }, [currentProjectPath, activeTab]);
+    const rubyCandidates = useMemo(() => rubyBinCandidates(activeTab?.fileTree ?? null), [activeTab?.fileTree]);
+    const rubyHasTarget = !!selectedBin || rubyCandidates.length > 0;
+
+    const handleRubyClick = useCallback(async () => {
+        if (!rubyPath) {
+            openUrl(RUBY_RELEASES_URL).catch(() => {});
+            return;
+        }
+        if (currentProjectPath && !selectedBin && rubyCandidates.length > 1) {
+            openModal('sendToRuby', { projectPath: currentProjectPath, bins: rubyCandidates });
+            return;
+        }
+        const rel = selectedBin ?? rubyCandidates[0] ?? null;
+        setIsSendingToRuby(true);
+        try {
+            await sendToRuby(currentProjectPath && rel ? projectFilePath(currentProjectPath, rel) : null);
+        } finally {
+            setIsSendingToRuby(false);
+        }
+    }, [rubyPath, currentProjectPath, selectedBin, rubyCandidates, openModal]);
 
     const handleMinimize = async () => {
         try {
@@ -734,6 +797,25 @@ export const TitleBar: React.FC = () => {
                         />
                     </button>
                 )}
+
+                <button
+                    className={`titlebar__button titlebar__button--ruby${!rubyPath ? ' titlebar__button--disabled' : ''}`}
+                    onClick={() => void handleRubyClick()}
+                    disabled={isSendingToRuby}
+                    title={rubyPath ? (rubyHasTarget ? 'Send to RubyRe' : 'Open RubyRe') : 'RubyRe not installed'}
+                    aria-label={rubyPath ? 'Send to RubyRe' : 'RubyRe not installed'}
+                    data-tauri-drag-region="false"
+                >
+                    <img
+                        className="titlebar__ruby-logo"
+                        src="/ruby-logo.png"
+                        alt=""
+                        width={16}
+                        height={16}
+                        draggable={false}
+                        data-tauri-drag-region="false"
+                    />
+                </button>
 
                 {currentView === 'preview' && currentProject && (
                     <button

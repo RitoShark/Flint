@@ -344,6 +344,12 @@
 
 .titlebar__button--syncing .titlebar__sync-logo { animation: tbSyncSpin 1.4s linear infinite; }
 
+.titlebar__ruby-logo { width: 16px; height: 16px; object-fit: contain; }
+
+.titlebar__button--ruby.titlebar__button--disabled img { opacity: 0.35; filter: grayscale(1); }
+
+.titlebar__button--ruby.titlebar__button--disabled:hover img { opacity: 0.55; }
+
 @keyframes tbSyncSpin {
   from { transform: rotate(0); }
   to { transform: rotate(360deg); }

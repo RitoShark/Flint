@@ -1,0 +1,45 @@
+.send-ruby__hint { margin: 0; font-size: 12px; line-height: 1.5; color: var(--text-muted); }
+
+.send-ruby__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 50vh;
+  overflow: auto;
+}
+
+.send-ruby__row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.send-ruby__row:hover:not(:disabled),
+.send-ruby__row:focus-visible {
+  border-color: color-mix(in oklab, var(--accent-primary) 45%, var(--border));
+  background: color-mix(in oklab, var(--accent-primary) 10%, transparent);
+  outline: none;
+}
+
+.send-ruby__row:disabled { cursor: default; opacity: .6; }
+.send-ruby__row[aria-selected="true"] { opacity: 1; border-color: var(--accent-primary); }
+
+.send-ruby__name { font-size: 13px; font-weight: 600; }
+
+.send-ruby__where {
+  max-width: 100%;
+  font-size: 11px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
