@@ -11,6 +11,8 @@ import { copyRows, createPool, writeRows } from './pool';
 import { appearance } from './particleRead';
 import { createDriver } from './driver';
 import type { EmissionSurfaces } from './emissionSurface';
+import { createLineage } from './children';
+import { givePool, takePool } from './childPool';
 
 function system(overrides: Partial<EmitterModel> = {}): SystemModel {
     const emitter: VfxValue = {type: 'struct', class: null, classHash: nameHash('VfxEmitterDefinitionData'), object: null, fields: []};
@@ -24,6 +26,39 @@ const basis = identityInto(new Float32Array(9));
 const step = (now: number, dt = 0.1): SystemStep => ({now, dt, origin: [0, 0, 0], moved: [0, 0, 0], yaw: basis, world: basis, stopped: false});
 
 describe('native particle simulation', () => {
+    it('bounds nested child definitions and keeps renderer feeds stable through replay', () => {
+        let nested = system({singleParticle: true, rate: constant(1)});
+        for (let depth = 0; depth < 8; depth++) nested = system({singleParticle: true, rate: constant(1), childSet: {
+            children: [nested], bones: [], probability: constant(0), onDeath: false, inheritance: null,
+        }});
+        const driver = createDriver(51, {capacity: 4});
+        driver.swap(nested);
+        const feed = driver.sources('0.0');
+        driver.seek(1);
+        expect(driver.liveChildren()).toBe(4);
+        expect(Math.max(...driver.births().map(birth => birth.depth))).toBe(4);
+        const expected = copyRows(feed[0].pool);
+        driver.seek(0.5);
+        driver.seek(1);
+        expect(driver.sources('0.0')).toBe(feed);
+        expect(copyRows(feed[0].pool)).toEqual(expected);
+        driver.restart();
+        expect(feed).toHaveLength(0);
+        expect(driver.liveChildren()).toBe(0);
+    });
+
+    it('prevents duplicate cache returns from sharing one pool between live children', () => {
+        const lineage = createLineage(1);
+        const pool = createPool(16);
+        givePool(lineage, pool, 16);
+        givePool(lineage, pool, 16);
+        const first = takePool(lineage, 16);
+        const second = takePool(lineage, 16);
+        expect(first).toBe(pool);
+        expect(second).not.toBe(first);
+        expect(() => givePool(lineage, pool, 32)).toThrow(RangeError);
+    });
+
     it('invalidates checkpoints when emission surfaces arrive after playback', () => {
         const model = system({singleParticle: true, rate: constant(1), birthVelocity: constant(0, 0, 0)});
         const driver = createDriver(10, {capacity: 4});
