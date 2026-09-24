@@ -24,7 +24,8 @@ export type VfxValue =
     | { type: 'bool'; value: boolean }
     | { type: 'number'; value: number }
     | { type: 'string'; value: string }
-    | { type: 'vector' | 'matrix'; values: number[] }
+    | { type: 'vector'; values: number[] }
+    | { type: 'matrix'; values: number[] | number[][] }
     | { type: 'hash' | 'link'; hash: string; name: string | null }
     | ({ type: 'asset' } & NamedAsset)
     | { type: 'struct'; classHash: string; class: string | null; object: VfxObject | null; fields: VfxField[] }
