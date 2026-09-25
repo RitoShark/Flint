@@ -40,7 +40,7 @@ import type { AnimationClipInfo, SkinForm, SubmeshVisEvent } from '../../lib/api
 import { modelPreviewSessionStore, type ModelPreviewSession } from '../../lib/stores/modelPreviewSessionStore';
 import { shaderForgeAvailable, loadShaderForge } from '@shaderforge';
 import { readModelIdleEffects, type IdleEffectData } from '../../lib/api/idleEffects';
-import { playIdleEffects } from '../../lib/babylon/idleEffectPlayer';
+import { playIdleEffects } from '../../lib/vfx/native/player';
 
 // ============================================================================
 // Types
@@ -583,6 +583,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                     }
                     lastTimeRef.current = now;
                 }
+                idlePlayerRef.current?.render(engine.getDeltaTime() / 1000);
                 activeScene.render();
             } catch (err) {
                 renderErrCount++;
@@ -1065,12 +1066,18 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     }, [filePath, fileVersion, meshType]);
 
     useEffect(() => {
-        if (!scene || !meshData || meshType === 'static' || !showIdleEffects || idleEffects?.path !== filePath) return;
+        if (!scene || !meshData || meshData.kind !== 'skn' || meshType === 'static' || !showIdleEffects || idleEffects?.path !== filePath) return;
         const mesh = activeMeshesRef.current[0];
         if (!mesh) return;
         setIdleWarnings(idleEffects.data.warnings);
         const player = playIdleEffects(scene, mesh, skeletonRef.current, idleEffects.data, filePath, message => {
             setIdleWarnings(current => current.includes(message) ? current : [...current, message]);
+        }, {
+            meshData,
+            joints: builtSklRef.current?.joints ?? [],
+            influences: skeletonData?.influences ?? [],
+            animation: () => animationPlayerRef.current,
+            hidden: () => activeMeshesRef.current.filter(mesh => !mesh.isEnabled()).map(mesh => mesh.name),
         });
         idlePlayerRef.current = player;
         return () => {
@@ -1256,6 +1263,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             animationPlayerRef.current.time = val;
             animationPlayerRef.current.tick(0);
         }
+        idlePlayerRef.current?.seek(val);
         // Recompute submesh visibility at the scrubbed time (works while paused too).
         applyTimelineVisibility(val);
     };

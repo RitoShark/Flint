@@ -66,6 +66,10 @@ export class AnimationPlayer {
         return this.animation.duration;
     }
 
+    public get clip(): BakedAnimationDTO {
+        return this.animation;
+    }
+
     public tick(dt: number): void {
         const clampedDt = Math.min(Math.max(dt, 0), 0.05);
         if (!this.paused) {

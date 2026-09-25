@@ -111,6 +111,20 @@ pub async fn decode_dds_to_png(path: String) -> Result<DecodedImage, String> {
     decode_texture_bytes_impl(&data)
 }
 
+#[tauri::command]
+pub async fn read_vfx_cubemap(path: String) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let data = fs::read(path).map_err(|e| e.to_string())?;
+        let faces = ritoshark::tex::read_dds_faces_bytes(&data).map_err(|e| e.to_string())?;
+        if faces.len() != 6 { return Err("Reflection texture must contain six cubemap faces".into()); }
+        faces.into_iter().map(|face| {
+            let mut png = Vec::new();
+            image::ImageEncoder::write_image(image::codecs::png::PngEncoder::new(&mut png), face.as_raw(), face.width(), face.height(), image::ExtendedColorType::Rgba8).map_err(|e| e.to_string())?;
+            Ok(STANDARD.encode(png))
+        }).collect()
+    }).await.map_err(|e| e.to_string())?
+}
+
 /// Decode raw DDS/TEX bytes (already in memory) to base64-encoded PNG.
 #[tauri::command]
 pub async fn decode_bytes_to_png(request: tauri::ipc::Request<'_>) -> Result<DecodedImage, String> {

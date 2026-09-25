@@ -11,4 +11,5 @@ pub mod discovery;
 pub mod materials;
 pub mod ritobin;
 pub mod idle_effects;
+mod vfx_tree;
 

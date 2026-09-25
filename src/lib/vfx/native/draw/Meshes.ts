@@ -106,7 +106,7 @@ export function Meshes({ emitter, sources, buffers, samplers, hidden }: MeshesPr
                     }
                     scale.multiplyInPlace(Vector3.FromArray(particle.scale));
                     Matrix.ComposeToRef(scale, rotation, position, transform);
-                    transform.copyToArray(buffers.instanceMatrix.array, instance * 16);
+                    transform.copyToArray(buffers.instanceMatrix.array as Float32Array, instance * 16);
                     buffers.tint.array.set(particle.color, instance * 4);
                     buffers.erode.setX(instance, particle.lookup[2]);
                 }

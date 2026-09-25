@@ -9,6 +9,9 @@
     "dev:clean": "node -e \"require('fs').rmSync('node_modules/.vite', { recursive: true, force: true }); console.log('cleared node_modules/.vite');\"",
     "build": "npm run check:ui && tsc && vite build",
     "check:ui": "node scripts/check-ui.mjs",
+    "check:vfx": "tsc --noEmit",
+    "test:vfx": "vitest run src/lib/vfx src/lib/babylon/animationPose.test.ts",
+    "test:vfx:browser": "node scripts/vfx-smoke.mjs",
     "tauri": "tauri",
     "tauri:shaders": "tauri dev --features shaderforge",
     "dev:release": "tauri dev --release",
@@ -45,6 +48,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "typescript": "^5.6.3",
     "vite": "^5.0.0",
-    "vitest": "^3.2.7"
+    "vitest": "^3.2.7",
+    "playwright": "^1.63.0"
   }
 }

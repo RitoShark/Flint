@@ -1,10 +1,11 @@
 import { invokeCommand } from './core';
-import type { EffectFields } from '../babylon/idleEffectValues';
+import type { VfxSystem } from '../vfx/bindings';
 
 export interface IdleAttachment {
     bone: string;
     position: [number, number, number];
-    emitters: EffectFields[];
+    targetBone: string;
+    system: VfxSystem;
 }
 
 export interface IdleEffectData {

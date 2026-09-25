@@ -342,6 +342,7 @@ fn main() {
             commands::file::read_file_info,
             commands::file::inspect_path,
             commands::file::decode_dds_to_png,
+            commands::file::read_vfx_cubemap,
             commands::file::decode_bytes_to_png,
             commands::file::decode_bytes_to_rgba,
             commands::file::decode_texture_disk,

@@ -26,39 +26,10 @@ fn key(value: &BinValue) -> Option<u32> {
     }
 }
 
-fn plain(value: &BinValue, index: &BinIndex) -> Value {
+fn plain(value: &BinValue) -> Value {
     match value {
-        BinValue::Bool(v) | BinValue::Flag(v) => json!(v),
-        BinValue::F32(v) => json!(v),
-        BinValue::U8(v) => json!(v),
-        BinValue::U16(v) => json!(v),
-        BinValue::U32(v) => json!(v),
-        BinValue::I16(v) => json!(v),
-        BinValue::I32(v) => json!(v),
-        BinValue::Vec2(v) => json!(v),
         BinValue::Vec3(v) => json!(v),
-        BinValue::Vec4(v) => json!(v),
-        BinValue::Rgba(v) => json!(v.map(|c| c as f32 / 255.0)),
         BinValue::String(v) => json!(v),
-        BinValue::File(_) => json!(index.asset_path(value)),
-        BinValue::List { items, .. } => items.iter().map(|v| plain(v, index)).collect(),
-        BinValue::Pointer { fields, .. } | BinValue::Embed { fields, .. } => {
-            let mut out = serde_json::Map::new();
-            for name in [
-                "constantValue",
-                "dynamics",
-                "times",
-                "values",
-                "probabilityTables",
-                "keyTimes",
-                "keyValues",
-            ] {
-                if let Some(value) = field(fields, name) {
-                    out.insert(name.into(), plain(value, index));
-                }
-            }
-            Value::Object(out)
-        }
         _ => Value::Null,
     }
 }
@@ -84,6 +55,9 @@ pub fn read_idle_effects(mesh: &Path) -> IdleEffects {
         let links = bins[cursor].0.linked.clone();
         cursor += 1;
         for link in links {
+            if bins.len() >= 128 {
+                break;
+            }
             let Some(path) =
                 super::ritobin::resolve_linked_bin_path(mesh, None, &link.replace('\\', "/"))
             else {
@@ -125,6 +99,19 @@ fn collect_idle_effects(entries: &[&BinEntry], index: &BinIndex) -> IdleEffects 
     if let Some(additional) = field(&skin.fields, "mAdditionalResourceResolvers") {
         resolver_keys.extend(items_of(additional).iter().filter_map(key));
     }
+    let mut resources = std::collections::HashMap::new();
+    for hash in &resolver_keys {
+        let Some(resolver) = entries.iter().find(|e| e.path_hash == *hash) else {
+            continue;
+        };
+        if let Some(BinValue::Map { entries, .. }) = field(&resolver.fields, "resourceMap") {
+            for (from, to) in entries {
+                if let (Some(from), Some(to)) = (key(from), key(to)) {
+                    resources.entry(from).or_insert(to);
+                }
+            }
+        }
+    }
     for effect in items_of(idle) {
         let Some(fields) = fields_of(effect) else {
             continue;
@@ -132,92 +119,31 @@ fn collect_idle_effects(entries: &[&BinEntry], index: &BinIndex) -> IdleEffects 
         let Some(effect_key) = field(fields, "effectKey").and_then(key) else {
             continue;
         };
-        let mapped = resolver_keys.iter().find_map(|hash| {
-            let resolver = entries.iter().find(|e| e.path_hash == *hash)?;
-            match field(&resolver.fields, "resourceMap") {
-                Some(BinValue::Map { entries, .. }) => entries
-                    .iter()
-                    .find(|(k, _)| key(k) == Some(effect_key))
-                    .and_then(|(_, v)| key(v)),
-                _ => None,
-            }
-        });
-        let system = resolve_system(&entries, mapped.unwrap_or(effect_key));
+        let system = resolve_system(entries, *resources.get(&effect_key).unwrap_or(&effect_key));
         let Some(system) = system else {
             result.warnings.push(format!(
                 "Idle effect {effect_key:08x} could not be resolved"
             ));
             continue;
         };
-        let mut emitters = Vec::new();
-        for list in [
-            "complexEmitterDefinitionData",
-            "simpleEmitterDefinitionData",
-        ] {
-            for emitter in field(&system.fields, list)
-                .map(items_of)
-                .unwrap_or_default()
-            {
-                let Some(fields) = fields_of(emitter) else {
-                    continue;
-                };
-                let label = field(fields, "emitterName")
-                    .map(|v| plain(v, &index))
-                    .unwrap_or(json!("Emitter"));
-                if let Some(BinValue::Pointer { class, .. }) = field(fields, "primitive") {
-                    if *class != 0 && *class != fnv1a("VfxPrimitiveCameraQuad") {
-                        result
-                            .warnings
-                            .push(format!("{label}: unsupported particle shape"));
-                        continue;
-                    }
-                }
-                let mut data = serde_json::Map::new();
-                for name in [
-                    "emitterName",
-                    "texture",
-                    "rate",
-                    "particleLifetime",
-                    "isSingleParticle",
-                    "birthVelocity",
-                    "birthColor",
-                    "color",
-                    "birthScale0",
-                    "scale0",
-                    "birthRotation0",
-                    "birthRotationalVelocity0",
-                    "acceleration",
-                    "bindWeight",
-                    "emitterLifetime",
-                    "birthDelay",
-                    "blendMode",
-                    "numFrames",
-                    "startFrame",
-                    "frameRate",
-                    "texDiv",
-                    "isLocalOrientation",
-                    "isGroundLayer",
-                    "EmitterPosition",
-                    "birthTranslation",
-                    "particleLinger",
-                    "isDisabled",
-                ] {
-                    if let Some(value) = field(fields, name) {
-                        data.insert(name.into(), plain(value, &index));
-                    }
-                }
-                emitters.push(Value::Object(data));
+        let system = match super::vfx_tree::system(system, entries, index, &resources) {
+            Ok(system) => system,
+            Err(error) => {
+                result.warnings.push(error);
+                continue;
             }
-        }
+        };
         let value = |name: &str, default: Value| {
             field(fields, name)
-                .map(|v| plain(v, &index))
+                .map(plain)
+                .filter(|v| !v.is_null())
                 .unwrap_or(default)
         };
         result.attachments.push(json!({
             "bone": value("boneName", json!("")),
             "position": value("Position", json!([0, 0, 0])),
-            "emitters": emitters,
+            "targetBone": value("targetBoneName", json!("")),
+            "system": system,
         }));
     }
     result
@@ -311,12 +237,11 @@ mod tests {
         assert!(result.warnings.is_empty());
         assert_eq!(result.attachments[0]["bone"], "spine");
         assert_eq!(result.attachments[0]["position"], json!([1.0, 2.0, 3.0]));
+        let root = &result.attachments[0]["system"]["root"];
+        let emitter = &root["fields"][0]["value"]["items"][0];
+        assert_eq!(emitter["fields"][0]["value"]["path"], "assets/idle.tex");
         assert_eq!(
-            result.attachments[0]["emitters"][0]["texture"],
-            "assets/idle.tex"
-        );
-        assert_eq!(
-            result.attachments[0]["emitters"][0]["rate"]["constantValue"],
+            emitter["fields"][1]["value"]["fields"][0]["value"]["value"],
             4.0
         );
     }

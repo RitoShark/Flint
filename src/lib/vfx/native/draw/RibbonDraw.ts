@@ -28,9 +28,9 @@ export function RibbonDraw({ emitter, sources, samplers, hidden }: RibbonProps, 
     const points = strand(1024);
     const ordering = new Int32Array(1024);
     const forward = new Vector3();
-    const eye: Point = [0, 0, 0];
+    const eye: [number, number, number] = [0, 0, 0];
     const cursor = { vertex: 0, index: 0 };
-    const local: Point = [0, 0, 0];
+    const local: [number, number, number] = [0, 0, 0];
     const segment: BeamParticle = {
         scale: particle.scale, color: particle.color, tiling: new Float32Array(2), tilingAt: 0,
         turn: particle.rotation, local, uv: particle.textures[0], multUv: particle.textures[1],
@@ -58,8 +58,8 @@ export function RibbonDraw({ emitter, sources, samplers, hidden }: RibbonProps, 
                     const distance = Math.hypot(...source.target.map((value, axis) => value - source.origin[axis]));
                     const tint = model.colorBoundToDistance ? sampleCurve(model.colorByDistance, distance) : [1, 1, 1, 1];
                     const ends = {
-                        source: source.origin.map((value, axis) => value + model.sourceOffset[axis]) as Point,
-                        target: source.target.map((value, axis) => value + model.targetOffset[axis]) as Point,
+                        source: source.origin.map((value, axis) => value + model.sourceOffset[axis]) as [number, number, number],
+                        target: source.target.map((value, axis) => value + model.targetOffset[axis]) as [number, number, number],
                         eye: model.mode === BEAM_MODE.arbitrary ? null : eye,
                     };
                     for (let index = 0; index < pool.count && beams < 256; index++) {

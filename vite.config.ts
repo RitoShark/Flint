@@ -68,10 +68,6 @@ export default defineConfig({
                     if (id.includes('@monaco-editor/react') || id.includes('monaco-editor')) {
                         return 'monaco';
                     }
-                    // Three.js 3D rendering - lazy loaded
-                    if (id.includes('three') || id.includes('@react-three')) {
-                        return 'three';
-                    }
                     // Tauri APIs
                     if (id.includes('@tauri-apps')) {
                         return 'tauri-apis';
@@ -95,7 +91,7 @@ export default defineConfig({
     // CRITICAL for cold-start speed: anything NOT listed here is bundled
     // on-demand when the WebView first imports it. That's what was causing
     // the ~1m29s gap between "Vite ready in 543ms" and `main.tsx` actually
-    // executing — Vite was discovering and bundling `three`, `@react-three/*`,
+    // executing — Vite was discovering and bundling dependencies,
     // each `@tauri-apps/*` entry point, zustand, etc. one-by-one AS the
     // WebView fetched them, and each round-trip blocks the next request.
     //
