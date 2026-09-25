@@ -452,6 +452,8 @@ export const en: TranslationDict = {
     'settings.dev.binEntriesSub': 'All WADs → full BIN schema',
     'settings.dev.champion': 'Champion',
     'settings.dev.championSub': 'Skin + linked data BINs',
+    'settings.dev.cac': 'CAC',
+    'settings.dev.cacSub': 'CAC BINs → cac-export.ritobin',
     'settings.dev.animation': 'Animation',
     'settings.dev.animationSub': 'Clip + event + blend classes',
     'settings.dev.tft': 'TFT',

@@ -443,6 +443,8 @@ export const tr: TranslationDict = {
     'settings.dev.binEntriesSub': 'Tüm WAD arşivleri → tam BIN şeması',
     'settings.dev.champion': 'Şampiyon',
     'settings.dev.championSub': 'Kostüm ve bağlantılı veri BIN dosyaları',
+    'settings.dev.cac': 'CAC',
+    'settings.dev.cacSub': 'CAC BIN dosyaları → cac-export.ritobin',
     'settings.dev.animation': 'Animasyon',
     'settings.dev.animationSub': 'Klip, olay ve karışım sınıfları',
     'settings.dev.tft': 'TFT',

@@ -443,6 +443,8 @@ export const pt: TranslationDict = {
     'settings.dev.binEntriesSub': 'Todos os WADs → esquema completo de BIN',
     'settings.dev.champion': 'Campeão',
     'settings.dev.championSub': 'BINs de skins e dados associados',
+    'settings.dev.cac': 'CAC',
+    'settings.dev.cacSub': 'BINs de CAC → cac-export.ritobin',
     'settings.dev.animation': 'Animação',
     'settings.dev.animationSub': 'Classes de clips, eventos e mesclagem',
     'settings.dev.tft': 'TFT',

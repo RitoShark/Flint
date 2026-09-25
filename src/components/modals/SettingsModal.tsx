@@ -92,6 +92,10 @@ export const SettingsModal: React.FC = () => {
     const [championSchemaProgress, setChampionSchemaProgress] = useState<SchemaProgress | null>(null);
     const [championSchemaResult, setChampionSchemaResult] = useState<api.ChampionSchemaStats | null>(null);
 
+    const [isAggregatingCac, setIsAggregatingCac] = useState(false);
+    const [cacSchemaProgress, setCacSchemaProgress] = useState<SchemaProgress | null>(null);
+    const [cacSchemaResult, setCacSchemaResult] = useState<api.CacSchemaStats | null>(null);
+
     const [isAggregatingAnimation, setIsAggregatingAnimation] = useState(false);
     const [animationSchemaProgress, setAnimationSchemaProgress] = useState<SchemaProgress | null>(null);
     const [animationSchemaResult, setAnimationSchemaResult] = useState<api.AnimationSchemaStats | null>(null);
@@ -196,6 +200,13 @@ export const SettingsModal: React.FC = () => {
     useEffect(() => {
         const unlisten = listen<SchemaProgress>('champion-schema-progress', (event) => {
             setChampionSchemaProgress(event.payload);
+        });
+        return () => { unlisten.then((fn) => fn()); };
+    }, []);
+
+    useEffect(() => {
+        const unlisten = listen<SchemaProgress>('cac-schema-progress', (event) => {
+            setCacSchemaProgress(event.payload);
         });
         return () => { unlisten.then((fn) => fn()); };
     }, []);
@@ -440,6 +451,26 @@ export const SettingsModal: React.FC = () => {
             showToast('error', 'Champion schema aggregation failed. Check the log for details.');
         } finally {
             setIsAggregatingChampion(false);
+        }
+    };
+
+    const handleAggregateCacSchema = async () => {
+        if (!leaguePath) {
+            showToast('error', 'League path not configured. Set it in the Paths tab first.');
+            return;
+        }
+        setIsAggregatingCac(true);
+        setCacSchemaProgress(null);
+        setCacSchemaResult(null);
+        try {
+            const stats = await api.aggregateCacSchema(leaguePath);
+            setCacSchemaResult(stats);
+            showToast('success', `CAC schema exported: ${stats.classes_found.toLocaleString()} classes, ${stats.total_fields.toLocaleString()} fields`);
+        } catch (error) {
+            console.error('CAC schema export failed:', error);
+            showToast('error', 'CAC schema export failed. Check the log for details.');
+        } finally {
+            setIsAggregatingCac(false);
         }
     };
 
@@ -1047,6 +1078,11 @@ export const SettingsModal: React.FC = () => {
                                     <span className="dev-tile__label">{isAggregatingChampion ? t('common.rebuilding') : t('settings.dev.champion')}</span>
                                     <span className="dev-tile__desc">{t('settings.dev.championSub')}</span>
                                 </button>
+                                <button className="dev-tile" onClick={handleAggregateCacSchema} disabled={isAggregatingCac || !leaguePath} title="Champions WAD CAC BINs only: merges all ContextualActionData situations into cac-export.ritobin.">
+                                    <span className="dev-tile__ico" dangerouslySetInnerHTML={{ __html: getIcon('code') }} />
+                                    <span className="dev-tile__label">{isAggregatingCac ? t('common.rebuilding') : t('settings.dev.cac')}</span>
+                                    <span className="dev-tile__desc">{t('settings.dev.cacSub')}</span>
+                                </button>
                                 <button className="dev-tile" onClick={handleAggregateAnimationSchema} disabled={isAggregatingAnimation || !leaguePath} title="Champions WAD animation BINs only: one superset block per clip/event/blend class, with mBlendDataTable keys as &quot;from&quot; -> &quot;to&quot;.">
                                     <span className="dev-tile__ico" dangerouslySetInnerHTML={{ __html: getIcon('code') }} />
                                     <span className="dev-tile__label">{isAggregatingAnimation ? t('common.rebuilding') : t('settings.dev.animation')}</span>
@@ -1076,6 +1112,10 @@ export const SettingsModal: React.FC = () => {
                             {isAggregatingChampion && championSchemaProgress && <SchemaProgressView progress={championSchemaProgress} />}
                             {championSchemaResult && !isAggregatingChampion && (
                                 <SchemaResultView classes={championSchemaResult.classes_found} fields={championSchemaResult.total_fields} binsParsed={championSchemaResult.bins_parsed} binsFailed={championSchemaResult.bins_failed} wads={championSchemaResult.wads_scanned} outputPath={championSchemaResult.output_path} label="LinkedData BINs" />
+                            )}
+                            {isAggregatingCac && cacSchemaProgress && <SchemaProgressView progress={cacSchemaProgress} />}
+                            {cacSchemaResult && !isAggregatingCac && (
+                                <SchemaResultView classes={cacSchemaResult.classes_found} fields={cacSchemaResult.total_fields} binsParsed={cacSchemaResult.bins_parsed} binsFailed={cacSchemaResult.bins_failed} wads={cacSchemaResult.wads_scanned} outputPath={cacSchemaResult.output_path} label="CAC BINs" />
                             )}
                             {isAggregatingAnimation && animationSchemaProgress && <SchemaProgressView progress={animationSchemaProgress} />}
                             {animationSchemaResult && !isAggregatingAnimation && (
