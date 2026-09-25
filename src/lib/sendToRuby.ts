@@ -3,12 +3,12 @@
  * a toast. Shared by the title bar's RubyRe button and the BIN chooser it opens.
  */
 import * as api from './api';
-import { useNotificationStore } from './stores';
+import { useConfigStore, useNotificationStore } from './stores';
 
 export async function sendToRuby(binPath: string | null): Promise<void> {
     const { showToast } = useNotificationStore.getState();
     try {
-        const result = await api.launchRuby(binPath);
+        const result = await api.launchRuby(binPath, useConfigStore.getState().rubyPath);
         if (result.warning) showToast('warning', result.warning);
     } catch (err) {
         const flintError = err as api.FlintError;

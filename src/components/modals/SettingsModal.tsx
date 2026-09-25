@@ -71,6 +71,7 @@ export const SettingsModal: React.FC = () => {
     const [preferredLauncher, setPreferredLauncher] = useState<'ltk' | 'celestial' | null>(configStore.preferredLauncher);
     const [jadePath, setJadePath] = useState(configStore.jadePath || '');
     const [quartzPath, setQuartzPath] = useState(configStore.quartzPath || '');
+    const [rubyPath, setRubyPath] = useState(configStore.rubyPath || '');
     const [isValidating, setIsValidating] = useState(false);
 
     const [assocStatus, setAssocStatus] = useState<FileAssocStatus | null>(null);
@@ -136,6 +137,7 @@ export const SettingsModal: React.FC = () => {
         setPreferredLauncher(c.preferredLauncher);
         setJadePath(c.jadePath || '');
         setQuartzPath(c.quartzPath || '');
+        setRubyPath(c.rubyPath || '');
         getVersion().then(setCurrentVersion).catch(() => setCurrentVersion('0.0.0'));
         api.getFileAssociationStatus().then(setAssocStatus).catch(() => {});
     }, [isVisible]);
@@ -155,7 +157,8 @@ export const SettingsModal: React.FC = () => {
         || celestialPath !== (configStore.celestialModPath || '')
         || preferredLauncher !== configStore.preferredLauncher
         || jadePath !== (configStore.jadePath || '')
-        || quartzPath !== (configStore.quartzPath || '');
+        || quartzPath !== (configStore.quartzPath || '')
+        || rubyPath !== (configStore.rubyPath || '');
 
     // Nothing here is written to the store until "Save Settings", so an
     // unguarded close silently discards the edit. The guard lives on the store
@@ -309,6 +312,23 @@ export const SettingsModal: React.FC = () => {
             }
         } catch {
             showToast('error', 'Failed to detect Quartz installation');
+        } finally {
+            setIsValidating(false);
+        }
+    };
+
+    const handleDetectRuby = async () => {
+        setIsValidating(true);
+        try {
+            const path = await api.detectRubyInstallation();
+            if (path) {
+                setRubyPath(path);
+                showToast('success', 'Ruby installation detected!');
+            } else {
+                showToast('error', 'Ruby not found. Please install Ruby first.');
+            }
+        } catch {
+            showToast('error', 'Failed to detect Ruby installation');
         } finally {
             setIsValidating(false);
         }
@@ -537,6 +557,7 @@ export const SettingsModal: React.FC = () => {
 
         configStore.setJadePath(jadePath || null);
         configStore.setQuartzPath(quartzPath || null);
+        configStore.setRubyPath(rubyPath || null);
 
         api.setLogLevel(verboseLogging).catch(() => {});
         showToast('success', 'Settings saved');
@@ -595,7 +616,7 @@ export const SettingsModal: React.FC = () => {
         },
     ];
 
-    type IntegrationId = 'ltk' | 'celestial' | 'jade' | 'quartz';
+    type IntegrationId = 'ltk' | 'celestial' | 'jade' | 'quartz' | 'ruby';
     interface Integration {
         id: IntegrationId;
         name: string;
@@ -656,6 +677,18 @@ export const SettingsModal: React.FC = () => {
             setPath: setQuartzPath,
             onDetect: handleDetectQuartz,
             browseTitle: 'Select Quartz Executable',
+            directory: false,
+            kind: 'app',
+        },
+        {
+            id: 'ruby',
+            name: 'RubyRe',
+            tagline: 'Preview project VFX in RubyRe from the title bar.',
+            accent: '#EF4444',
+            path: rubyPath,
+            setPath: setRubyPath,
+            onDetect: handleDetectRuby,
+            browseTitle: 'Select Ruby Executable',
             directory: false,
             kind: 'app',
         },

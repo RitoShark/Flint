@@ -5,7 +5,6 @@ import { DlIcon } from '../ui/design-lab';
 import { useModalStore } from '../../lib/stores';
 import { projectFilePath, rubyBinLabel } from '../../lib/rubyTargets';
 import { sendToRuby } from '../../lib/sendToRuby';
-import './SendToRubyModal.css';
 
 /** Which BIN to open in RubyRe, when the project has more than one and none is selected. */
 export const SendToRubyModal: React.FC = () => {

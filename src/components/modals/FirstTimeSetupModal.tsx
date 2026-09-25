@@ -83,6 +83,7 @@ export const FirstTimeSetupModal: React.FC = () => {
     const preferredLauncherStored = useConfigStore((s) => s.preferredLauncher);
     const jadePathStored = useConfigStore((s) => s.jadePath);
     const quartzPathStored = useConfigStore((s) => s.quartzPath);
+    const rubyPathStored = useConfigStore((s) => s.rubyPath);
     const autoSyncStored = useConfigStore((s) => s.autoSyncToLauncher);
     const autoUpdateStored = useConfigStore((s) => s.autoUpdateEnabled);
 
@@ -100,6 +101,7 @@ export const FirstTimeSetupModal: React.FC = () => {
     const [preferredLauncher, setPreferredLauncher] = useState<'ltk' | 'celestial' | null>(preferredLauncherStored);
     const [jadePath, setJadePath] = useState(jadePathStored || '');
     const [quartzPath, setQuartzPath] = useState(quartzPathStored || '');
+    const [rubyPath, setRubyPath] = useState(rubyPathStored || '');
     const [autoSync, setAutoSync] = useState<boolean>(autoSyncStored);
     const [editorsOpen, setEditorsOpen] = useState(false);
     const [registerAssoc, setRegisterAssoc] = useState(true);
@@ -200,7 +202,11 @@ export const FirstTimeSetupModal: React.FC = () => {
                 setQuartzPath(ext.quartz);
                 results.push('Quartz');
             }
-            if (ext.jade || ext.quartz) setEditorsOpen(true);
+            if (ext.ruby) {
+                setRubyPath(ext.ruby);
+                results.push('RubyRe');
+            }
+            if (ext.jade || ext.quartz || ext.ruby) setEditorsOpen(true);
 
             if (results.length === 0) {
                 showToast('warning', 'Nothing was auto-detected. Fill the paths in manually.');
@@ -259,6 +265,7 @@ export const FirstTimeSetupModal: React.FC = () => {
         config.setPreferredLauncher(preferredLauncher);
         config.setJadePath(jadePath || null);
         config.setQuartzPath(quartzPath || null);
+        config.setRubyPath(rubyPath || null);
         config.setAutoSyncToLauncher(autoSync);
         config.setAutoUpdateEnabled(autoUpdate);
 
@@ -353,6 +360,7 @@ export const FirstTimeSetupModal: React.FC = () => {
                                     preferredLauncher={preferredLauncher}
                                     jade={jadePath}
                                     quartz={quartzPath}
+                                    ruby={rubyPath}
                                     autoSync={autoSync}
                                     editorsOpen={editorsOpen}
                                     flintHome={flintHome}
@@ -364,6 +372,7 @@ export const FirstTimeSetupModal: React.FC = () => {
                                     onCelestial={setCelestialPath}
                                     onJade={setJadePath}
                                     onQuartz={setQuartzPath}
+                                    onRuby={setRubyPath}
                                     onAutoSync={setAutoSync}
                                     onEditorsToggle={() => setEditorsOpen((v) => !v)}
                                     onPreferredLauncherChange={setPreferredLauncher}
@@ -670,7 +679,7 @@ const IdentityPane: React.FC<{
 const PathsPane: React.FC<{
     league: string; pbe: string; project: string; ltk: string; celestial: string;
     preferredLauncher: 'ltk' | 'celestial' | null;
-    jade: string; quartz: string;
+    jade: string; quartz: string; ruby: string;
     autoSync: boolean;
     editorsOpen: boolean;
     flintHome: string;
@@ -682,6 +691,7 @@ const PathsPane: React.FC<{
     onCelestial: (v: string) => void;
     onJade: (v: string) => void;
     onQuartz: (v: string) => void;
+    onRuby: (v: string) => void;
     onAutoSync: (b: boolean) => void;
     onEditorsToggle: () => void;
     onPreferredLauncherChange: (l: 'ltk' | 'celestial' | null) => void;
@@ -691,8 +701,8 @@ const PathsPane: React.FC<{
     onBrowseLtk: () => void;
     onBrowseCelestial: () => void;
 }> = (p) => {
-    const hasEditor = !!(p.jade.trim() || p.quartz.trim());
-    const filledCount = [p.project, p.league, p.pbe, p.ltk || p.celestial, p.jade || p.quartz]
+    const hasEditor = !!(p.jade.trim() || p.quartz.trim() || p.ruby.trim());
+    const filledCount = [p.project, p.league, p.pbe, p.ltk || p.celestial, p.jade || p.quartz || p.ruby]
         .filter((v) => v.trim().length > 0).length;
     const progress = (filledCount / 5) * 100;
     return (
@@ -781,9 +791,10 @@ const PathsPane: React.FC<{
                         <span className="fwiz-disclose__logos" aria-hidden="true">
                             <img src="/jade-logo.webp" alt="" draggable={false} />
                             <img src="/quartz-logo.webp" alt="" draggable={false} />
+                            <img src="/ruby-logo.png" alt="" draggable={false} />
                         </span>
                         <span>
-                            Jade &amp; Quartz{' '}
+                            Jade, Quartz &amp; RubyRe{' '}
                             <span className="fwiz-disclose__sub">
                                 {hasEditor ? '(detected)' : '(optional, not detected)'}
                             </span>
@@ -813,6 +824,17 @@ const PathsPane: React.FC<{
                                 onChange: p.onQuartz,
                                 browseTitle: 'Select Quartz Executable',
                                 hint: 'VFX recolor & port editor, launched from the BIN preview.',
+                            }} />
+                            <PathSettingItem setting={{
+                                logoSrc: '/ruby-logo.png',
+                                logoColor: '#EF4444',
+                                label: 'RubyRe',
+                                file: true,
+                                placeholder: 'Path to the Ruby executable',
+                                value: p.ruby,
+                                onChange: p.onRuby,
+                                browseTitle: 'Select Ruby Executable',
+                                hint: 'Preview project VFX from the title bar.',
                             }} />
                         </div>
                     )}

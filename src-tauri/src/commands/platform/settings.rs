@@ -54,6 +54,7 @@ pub struct FlintSettings {
     pub bin_converter_engine: String,
     pub jade_path: Option<String>,
     pub quartz_path: Option<String>,
+    pub ruby_path: Option<String>,
 
     // Theme
     pub selected_theme: Option<String>,
@@ -69,6 +70,7 @@ impl FlintSettings {
             &mut self.celestial_mod_path,
             &mut self.jade_path,
             &mut self.quartz_path,
+            &mut self.ruby_path,
         ]
         .into_iter()
         .flatten()
@@ -112,6 +114,7 @@ impl Default for FlintSettings {
             bin_converter_engine: "ltk".to_string(),
             jade_path: None,
             quartz_path: None,
+            ruby_path: None,
             selected_theme: None,
         }
     }
@@ -607,6 +610,7 @@ pub fn migrate_from_localstorage(legacy_json: String) -> Result<(), String> {
         bin_converter_engine: state.get("binConverterEngine").and_then(|v| v.as_str()).unwrap_or("ltk").to_string(),
         jade_path: state.get("jadePath").and_then(|v| v.as_str()).map(String::from),
         quartz_path: state.get("quartzPath").and_then(|v| v.as_str()).map(String::from),
+        ruby_path: state.get("rubyPath").and_then(|v| v.as_str()).map(String::from),
         selected_theme: None,
     };
 

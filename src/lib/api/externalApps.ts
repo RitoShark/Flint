@@ -16,7 +16,6 @@ export async function launchQuartz(filePath: string, quartzPath: string): Promis
     return invokeCommand('launch_quartz', { filePath, quartzPath });
 }
 
-/** Detection is fully automatic (Start-menu shortcut, then install-folder scan) — there's no configured path for RubyRe. */
 export async function detectRubyInstallation(): Promise<string | null> {
     return invokeCommand('detect_ruby_installation', {});
 }
@@ -28,8 +27,8 @@ export interface RubyLaunchResult {
 }
 
 /** Sends `filePath` to RubyRe, or just launches RubyRe standalone when omitted. */
-export async function launchRuby(filePath?: string | null): Promise<RubyLaunchResult> {
-    return invokeCommand('launch_ruby', { filePath: filePath ?? null });
+export async function launchRuby(filePath: string | null, rubyPath: string | null): Promise<RubyLaunchResult> {
+    return invokeCommand('launch_ruby', { filePath, rubyPath });
 }
 
 /** Each field is the detected install/storage path or null when not found. */

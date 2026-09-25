@@ -4,7 +4,7 @@ import { SettingsRow, SettingsTag } from './SettingsRow';
 import { useTranslation } from '../../../lib/i18n';
 
 export type IntegrationDisplay = {
-    id: 'ltk' | 'celestial' | 'jade' | 'quartz';
+    id: 'ltk' | 'celestial' | 'jade' | 'quartz' | 'ruby';
     name: string;
     tagline: string;
     accent: string;
@@ -21,6 +21,7 @@ const INTEGRATION_LOGOS: Record<IntegrationDisplay['id'], string> = {
     celestial: '/celestial-logo.webp',
     jade: '/jade-logo.webp',
     quartz: '/quartz-logo.webp',
+    ruby: '/ruby-logo.png',
 };
 const IntegrationLogo: React.FC<{ id: IntegrationDisplay['id'] }> = ({ id }) => (
     <img src={INTEGRATION_LOGOS[id]} alt="" className="settings-row__logo-img" draggable={false} />

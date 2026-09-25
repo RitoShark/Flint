@@ -78,5 +78,6 @@
 @import './features/unknown-preview.css';
 @import './features/paint.css';
 @import './features/setup-splash.css';
+@import './features/send-to-ruby.css';
 @import '../themes/default.css';
 @import './foundation/motion.css';

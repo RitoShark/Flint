@@ -20,6 +20,7 @@ export interface FlintSettings {
     preferredLauncher: 'ltk' | 'celestial' | null;
     jadePath: string | null;
     quartzPath: string | null;
+    rubyPath: string | null;
     selectedTheme: string | null;
     /**
      * Rust types this as a plain `String` with a serde default, so `null` fails

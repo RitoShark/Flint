@@ -156,16 +156,6 @@ pub async fn launch_quartz(file_path: String, quartz_path: String) -> Result<(),
     Ok(())
 }
 
-// =============================================================================
-// RubyRe (VFX previewer) — detection is fully automatic, no configured path.
-// Resolution order mirrors Quartz's `resolve_ruby` in jade.rs: Start-menu
-// "RubyRe.lnk", then "Ruby.lnk" (both names are in the wild), then a fallback
-// scan of the usual install folders.
-// =============================================================================
-
-/// Result of an attempt to reach RubyRe. `launched: None` with a `warning` is
-/// a normal "not installed" outcome, not an error — same contract as Quartz's
-/// `ruby_open`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RubyLaunchResult {
@@ -333,21 +323,28 @@ fn shell_open_ruby(_target: &Path, _bin_path: Option<&Path>) -> Result<(), Strin
     Err("Opening RubyRe is currently supported on Windows only.".to_string())
 }
 
-/// Sends a BIN to RubyRe, or just launches RubyRe standalone when `file_path`
-/// is `None`. Mirrors Quartz's `ruby_open`: "not installed" comes back as
-/// `launched: None` + a `warning`, not an `Err`, so the caller can show a
-/// prompt instead of a failure toast.
 #[tauri::command]
-pub async fn launch_ruby(file_path: Option<String>) -> Result<RubyLaunchResult, String> {
+pub async fn launch_ruby(
+    file_path: Option<String>,
+    ruby_path: Option<String>,
+) -> Result<RubyLaunchResult, String> {
     let bin_path = file_path.as_deref().map(validate_ruby_bin_path).transpose()?;
 
-    let Some(target) = resolve_ruby() else {
+    let Some(target) = ruby_path
+        .filter(|path| !path.trim().is_empty())
+        .map(PathBuf::from)
+    else {
         return Ok(RubyLaunchResult {
             launched: None,
-            warning: Some("RubyRe is not installed.".to_string()),
+            warning: Some("Connect RubyRe in Settings > Integrations.".to_string()),
         });
     };
 
+    if !target.is_file() {
+        return Err(
+            "RubyRe was not found at the configured path. Update Settings > Integrations.".to_string(),
+        );
+    }
     shell_open_ruby(&target, bin_path.as_deref())?;
     Ok(RubyLaunchResult {
         launched: Some(target.to_string_lossy().into_owned()),

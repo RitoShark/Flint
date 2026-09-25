@@ -53,6 +53,7 @@ const DISK: FlintSettings = {
     preferredLauncher: null,
     jadePath: null,
     quartzPath: null,
+    rubyPath: null,
     selectedTheme: null,
     binConverterEngine: 'ltk',
 };
@@ -101,6 +102,20 @@ describe('configStore persistence', () => {
         expect(saveSettings).toHaveBeenCalled();
         const saved = lastSaved();
         expect(saved.defaultProjectPath).toBe('D:/MyProjects');
+    });
+
+    it('persists and disconnects the Ruby integration', async () => {
+        getSettings.mockResolvedValue({ ...DISK, rubyPath: 'C:/Ruby/Ruby.exe' });
+        await useConfigStore.getState().hydrate();
+        expect(useConfigStore.getState().rubyPath).toBe('C:/Ruby/Ruby.exe');
+
+        useConfigStore.getState().setRubyPath('D:/Ruby/Ruby.exe');
+        await vi.advanceTimersByTimeAsync(100);
+        expect(lastSaved().rubyPath).toBe('D:/Ruby/Ruby.exe');
+
+        useConfigStore.getState().setRubyPath(null);
+        await vi.advanceTimersByTimeAsync(100);
+        expect(lastSaved().rubyPath).toBeNull();
     });
 
     it('round-trips fields the store does not model', async () => {

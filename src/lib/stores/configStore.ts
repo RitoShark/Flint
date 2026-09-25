@@ -22,6 +22,7 @@ interface ConfigState {
   savedProjects: SavedProject[];
   jadePath: string | null;
   quartzPath: string | null;
+  rubyPath: string | null;
   selectedTheme: string | null;
 
   /** Whether the store has finished loading from disk */
@@ -46,6 +47,7 @@ interface ConfigState {
   removeSavedProject: (projectId: string) => void;
   setJadePath: (path: string | null) => void;
   setQuartzPath: (path: string | null) => void;
+  setRubyPath: (path: string | null) => void;
   setSelectedTheme: (themeId: string | null) => void;
 
   /** Load settings from disk (called once at startup) */
@@ -63,6 +65,7 @@ const CACHED_PATH_KEYS = [
   'celestialModPath',
   'jadePath',
   'quartzPath',
+  'rubyPath',
 ] as const;
 
 function readCache(): Partial<FlintSettings> | null {
@@ -181,6 +184,7 @@ function snapshotSettings(): FlintSettings {
     preferredLauncher: s.preferredLauncher,
     jadePath: s.jadePath,
     quartzPath: s.quartzPath,
+    rubyPath: s.rubyPath,
     selectedTheme: s.selectedTheme,
   };
 }
@@ -281,6 +285,7 @@ export const useConfigStore = create<ConfigState>()((set) => ({
   savedProjects: (__cached?.savedProjects as SavedProject[] | undefined) ?? [],
   jadePath: __cached?.jadePath ?? null,
   quartzPath: __cached?.quartzPath ?? null,
+  rubyPath: __cached?.rubyPath ?? null,
   selectedTheme: __cached?.selectedTheme ?? null,
   _hydrated: __cached !== null,
 
@@ -300,6 +305,7 @@ export const useConfigStore = create<ConfigState>()((set) => ({
   setPreferredLauncher: (l) => { set({ preferredLauncher: l }); persistToDisk('preferredLauncher'); },
   setJadePath: (path) => { set({ jadePath: path }); persistToDisk('jadePath'); },
   setQuartzPath: (path) => { set({ quartzPath: path }); persistToDisk('quartzPath'); },
+  setRubyPath: (path) => { set({ rubyPath: path }); persistToDisk('rubyPath'); },
   setSavedProjects: (projects) => { set({ savedProjects: projects }); persistToDisk('savedProjects'); },
   addSavedProject: (project) => {
     set((state) => {
@@ -371,6 +377,7 @@ export const useConfigStore = create<ConfigState>()((set) => ({
         preferredLauncher: normalizeLauncher(s.preferredLauncher),
         jadePath: s.jadePath,
         quartzPath: s.quartzPath,
+        rubyPath: s.rubyPath ?? null,
         selectedTheme: s.selectedTheme ?? null,
       };
 
