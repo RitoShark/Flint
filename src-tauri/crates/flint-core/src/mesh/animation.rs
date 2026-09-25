@@ -76,7 +76,7 @@ pub struct AnimationClipInfo {
     pub events: Vec<SubmeshVisEvent>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct AnimationList {
     pub clips: Vec<AnimationClipInfo>,
     /// Submesh names hidden at load (from the skin BIN's `initialSubmeshToHide`).

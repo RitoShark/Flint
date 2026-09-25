@@ -555,16 +555,16 @@ pub async fn read_animation_list(skn_path: String) -> Result<AnimationList, Stri
     
     let skn_path = std::path::Path::new(&skn_path);
 
-    let bin_path = find_animation_bin(skn_path)
-        .ok_or_else(|| "Animation BIN file not found".to_string())?;
-
-    tracing::debug!("Found animation BIN: {}", bin_path.display());
-
-    let mut list = extract_animation_list(&bin_path)
-        .map_err(|e| {
-            tracing::error!("Failed to extract animation list: {}", e);
-            format!("Failed to extract animation list: {}", e)
-        })?;
+    let mut list = if let Some(bin_path) = find_animation_bin(skn_path) {
+        tracing::debug!("Found animation BIN: {}", bin_path.display());
+        extract_animation_list(&bin_path)
+            .map_err(|e| {
+                tracing::error!("Failed to extract animation list: {}", e);
+                format!("Failed to extract animation list: {}", e)
+            })?
+    } else {
+        AnimationList::default()
+    };
 
     // Attach the static submesh baseline + gear forms from the skin BIN (non-fatal if not
     // found) — one read/parse serves both.
