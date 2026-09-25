@@ -58,6 +58,64 @@ const JsonEditor: React.FC<{ value: string; onChange: (v: string) => void }> = (
 
 type Selection = 'meta' | 'modpkg' | { wad: string } | null;
 
+const ArchiveContentPanes: React.FC<{ sessionId?: string }> = ({ sessionId }) => {
+    const containerRef = useRef<HTMLDivElement>(null);
+    const dragRef = useRef<{ x: number; width: number } | null>(null);
+    const [previewWidth, setPreviewWidth] = useState(420);
+
+    const resizePreview = (width: number) => {
+        const available = (containerRef.current?.clientWidth ?? 584) - 4;
+        const minimum = Math.min(380, available * 0.6);
+        const maximum = Math.max(minimum, available - 200);
+        setPreviewWidth(Math.min(maximum, Math.max(minimum, width)));
+    };
+
+    return (
+        <div ref={containerRef} style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
+            <WadBrowserPanel sessionId={sessionId} style={{ flex: 1, height: '100%', minWidth: 0, maxWidth: 'none', borderRight: 'none' }} />
+            <div
+                className="panel-resizer"
+                role="separator"
+                aria-label="Resize file preview"
+                aria-orientation="vertical"
+                tabIndex={0}
+                title="Drag to resize file preview"
+                style={{ width: 4, flexShrink: 0, touchAction: 'none', userSelect: 'none' }}
+                onPointerDown={(event) => {
+                    if (event.button !== 0) return;
+                    event.preventDefault();
+                    event.currentTarget.focus();
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    const pane = event.currentTarget.nextElementSibling;
+                    dragRef.current = { x: event.clientX, width: pane?.getBoundingClientRect().width ?? previewWidth };
+                }}
+                onPointerMove={(event) => {
+                    const drag = dragRef.current;
+                    if (drag) resizePreview(drag.width + drag.x - event.clientX);
+                }}
+                onPointerUp={(event) => {
+                    dragRef.current = null;
+                    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                        event.currentTarget.releasePointerCapture(event.pointerId);
+                    }
+                }}
+                onPointerCancel={() => { dragRef.current = null; }}
+                onLostPointerCapture={() => { dragRef.current = null; }}
+                onKeyDown={(event) => {
+                    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+                    event.preventDefault();
+                    const width = event.currentTarget.nextElementSibling?.getBoundingClientRect().width ?? previewWidth;
+                    resizePreview(width + (event.key === 'ArrowLeft' ? 20 : -20));
+                }}
+            />
+            <WadPreviewPanel sessionId={sessionId} style={{
+                flex: '0 0 auto', width: previewWidth, height: '100%',
+                minWidth: 'min(380px, 60%)', maxWidth: 'max(60%, calc(100% - 204px))',
+            }} />
+        </div>
+    );
+};
+
 export const ArchiveEditor: React.FC<{ filePath: string }> = ({ filePath }) => {
     const showToast = useNotificationStore((s) => s.showToast);
     const { layout, metaJson, openWadName, setLayout, setMetaJson, openWad, closeWad, reset } = useArchiveEditStore();
@@ -315,10 +373,7 @@ export const ArchiveEditor: React.FC<{ filePath: string }> = ({ filePath }) => {
                                 <span className="archive-note__icon" dangerouslySetInnerHTML={{ __html: getIcon('package') }} />
                                 Package contents — edits persist into the package only on “Save Archive”.
                             </div>
-                            <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
-                                <WadBrowserPanel sessionId={paneSessionId ?? undefined} style={{ flex: 1, height: '100%', minWidth: 0, maxWidth: 'none', borderRight: '1px solid var(--border)' }} />
-                                <WadPreviewPanel sessionId={paneSessionId ?? undefined} style={{ width: '420px', height: '100%', minWidth: '380px' }} />
-                            </div>
+                            <ArchiveContentPanes sessionId={paneSessionId ?? undefined} />
                         </>
                     ) : selected === 'meta' || !openWadName ? (
                         <>
@@ -335,10 +390,7 @@ export const ArchiveEditor: React.FC<{ filePath: string }> = ({ filePath }) => {
                                 <span className="archive-note__icon" dangerouslySetInnerHTML={{ __html: getIcon('package') }} />
                                 {openWadName} — edits persist into the archive only on “Save Archive”.
                             </div>
-                            <div style={{ flex: 1, minHeight: 0, display: 'flex', overflow: 'hidden' }}>
-                                <WadBrowserPanel sessionId={paneSessionId ?? undefined} style={{ flex: 1, height: '100%', minWidth: 0, maxWidth: 'none', borderRight: '1px solid var(--border)' }} />
-                                <WadPreviewPanel sessionId={paneSessionId ?? undefined} style={{ width: '420px', height: '100%', minWidth: '380px' }} />
-                            </div>
+                            <ArchiveContentPanes sessionId={paneSessionId ?? undefined} />
                         </>
                     )}
                 </div>
