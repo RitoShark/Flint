@@ -279,6 +279,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     /* Audit findings for this BIN — the same checks the WAD audit runs, surfaced on the
        lines they sit on so a crash risk is visible where it is authored. */
     const [auditIssues, setAuditIssues] = useState<api.CheckIssue[]>([]);
+    const [auditRevision, setAuditRevision] = useState(0);
     const [auditIndex, setAuditIndex] = useState(0);
     const [openIssue, setOpenIssue] = useState<api.CheckIssue | null>(null);
     /* Findings describe the saved file, so one whose retype is already in the buffer would
@@ -802,7 +803,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     }, []);
 
     useEffect(() => {
-        if (useLsp || !searchRoot || loading || error) { setAuditIssues([]); return; }
+        if (useLsp || loading || error) { setAuditIssues([]); return; }
         let cancelled = false;
         fileIssues(searchRoot, filePath)
             .then((found) => {
@@ -813,7 +814,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             })
             .catch((e) => { console.debug('[bin-editor] audit failed:', e); });
         return () => { cancelled = true; };
-    }, [searchRoot, filePath, fileVersion, fileIssuesRev, loading, error, useLsp]);
+    }, [searchRoot, filePath, fileVersion, fileIssuesRev, auditRevision, loading, error, useLsp]);
 
     /* Where each finding sits in THIS text. A reported line is used as given; a finding
        with no line still names its asset path in the message, and searching the live
@@ -960,6 +961,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             setWorking('Saving BIN file...');
             await api.saveRitobinToBin(filePath, content);
             setOriginalContent(content);
+            setAuditRevision((revision) => revision + 1);
             setReady('Saved');
             showToast('success', 'BIN file saved successfully');
 

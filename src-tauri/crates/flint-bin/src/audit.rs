@@ -399,6 +399,16 @@ pub fn check_one_file(dir: &Path, rel: &str) -> Result<Vec<CheckIssue>, String> 
     Ok(issues)
 }
 
+/// Checks a standalone file with the same rules as a project file. Asset paths
+/// are relative to the unpacked mod root; a loose file uses its containing folder.
+pub fn check_file_path(path: &Path) -> Result<Vec<CheckIssue>, String> {
+    let root = crate::mod_root(path)
+        .or_else(|| path.parent().map(Path::to_path_buf))
+        .ok_or_else(|| format!("No parent folder for {}", path.display()))?;
+    let rel = path.strip_prefix(&root).map_err(|e| e.to_string())?;
+    check_one_file(&root, &rel.to_string_lossy())
+}
+
 /// Audits an unpacked `.wad.client` folder.
 pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
     if !dir.is_dir() {
@@ -748,6 +758,8 @@ mod tests {
         let folder = audit_wad_folder(dir.path()).unwrap();
         assert_eq!(folder.missing, vec![texture.to_string(), custom.to_string()]);
         let single = check_one_file(dir.path(), "skin0.bin").unwrap();
+        let standalone = check_file_path(&dir.path().join("skin0.bin")).unwrap();
+        assert_eq!(serde_json::to_value(&single).unwrap(), serde_json::to_value(&standalone).unwrap());
         for issues in [&folder.issues, &single] {
             let missing: Vec<_> = issues.iter().filter(|i| i.code == "bin.missing-ref").collect();
             assert_eq!(missing.len(), 1);
@@ -756,6 +768,26 @@ mod tests {
             assert!(missing[0].message.contains(texture));
             assert!(!missing[0].message.contains("audit-stock"));
         }
+    }
+
+    #[test]
+    fn standalone_bin_resolves_assets_from_mod_root_and_rechecks_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let skins = dir.path().join("data/characters/fiora/skins");
+        std::fs::create_dir_all(&skins).unwrap();
+        std::fs::create_dir_all(dir.path().join("assets")).unwrap();
+        let asset = dir.path().join("assets/custom.bin");
+        std::fs::write(&asset, b"present").unwrap();
+        let path = skins.join("skin0.bin");
+        let mut bin = Bin::new();
+        bin.linked.push("assets/custom.bin".into());
+        std::fs::write(&path, crate::codec::write_bin(&bin).unwrap()).unwrap();
+        assert!(!check_file_path(&path).unwrap().iter().any(|i| i.code == "bin.missing-ref"));
+        std::fs::remove_file(asset).unwrap();
+        let issues = check_file_path(&path).unwrap();
+        let missing = issues.iter().find(|i| i.code == "bin.missing-ref").unwrap();
+        assert_eq!(missing.file, "data/characters/fiora/skins/skin0.bin");
+        assert!(missing.paths.contains(&"assets/custom.bin".to_string()));
     }
 
     #[test]

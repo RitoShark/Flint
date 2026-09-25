@@ -80,13 +80,13 @@ function issueRelPath(projectPath: string, filePath: string): string | null {
 
 /**
  * The findings for ONE file, for a surface that wants the issues themselves rather
- * than the file tree's one-line tag. Returns an empty list for a file outside the
- * project's content — there is nothing the audit reports it under.
+ * than the file tree's one-line tag. Files outside a project's base content use
+ * the standalone check, which discovers their unpacked mod folder.
  */
-export async function fileIssues(projectPath: string, filePath: string): Promise<api.CheckIssue[]> {
-    const rel = issueRelPath(projectPath, filePath);
-    if (!rel) return [];
-    return api.recheckProjectFile(projectPath, rel);
+export async function fileIssues(projectPath: string | null, filePath: string): Promise<api.CheckIssue[]> {
+    const rel = projectPath ? issueRelPath(projectPath, filePath) : null;
+    if (projectPath && rel) return api.recheckProjectFile(projectPath, rel);
+    return api.recheckStandaloneFile(filePath);
 }
 
 /**

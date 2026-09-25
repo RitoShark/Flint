@@ -1,11 +1,34 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { issueText, issueTagsFromIssues, recheckFile } from './projectAudit';
+import { fileIssues, issueText, issueTagsFromIssues, recheckFile } from './projectAudit';
 import { useAppMetadataStore } from '../stores/appMetadataStore';
 import { useProjectTabStore } from '../stores/projectTabStore';
 import * as api from '../api';
 import type { CheckIssue } from '../api';
 
-vi.mock('../api', () => ({ recheckProjectFile: vi.fn() }));
+vi.mock('../api', () => ({ recheckProjectFile: vi.fn(), recheckStandaloneFile: vi.fn() }));
+
+describe('fileIssues', () => {
+    it('checks standalone files without a project root', async () => {
+        const file = 'E:/Modlarım/Cha Hae In Fiora/Fiora/data/characters/fiora/skins/skin0.bin';
+        const findings = [issue()];
+        vi.mocked(api.recheckStandaloneFile).mockResolvedValue(findings);
+        expect(await fileIssues(null, file)).toEqual(findings);
+        expect(api.recheckStandaloneFile).toHaveBeenCalledWith(file);
+    });
+
+    it('checks project files outside the base layer directly', async () => {
+        const file = '/p/content/custom/fiora.wad.client/data/skin0.bin';
+        vi.mocked(api.recheckStandaloneFile).mockResolvedValue([]);
+        await fileIssues('/p', file);
+        expect(api.recheckStandaloneFile).toHaveBeenCalledWith(file);
+    });
+
+    it('keeps project-relative findings for base-layer files', async () => {
+        vi.mocked(api.recheckProjectFile).mockResolvedValue([]);
+        await fileIssues('/p', '/p/content/base/fiora.wad.client/data/skin0.bin');
+        expect(api.recheckProjectFile).toHaveBeenCalledWith('/p', 'fiora.wad.client/data/skin0.bin');
+    });
+});
 
 const issue = (over: Partial<CheckIssue> = {}): CheckIssue => ({
     severity: 'critical',

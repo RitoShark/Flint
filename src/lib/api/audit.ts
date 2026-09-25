@@ -80,6 +80,11 @@ export async function recheckProjectFile(projectPath: string, rel: string): Prom
     return invokeCommand('recheck_project_file', { projectPath, rel });
 }
 
+/** Checks a file directly, discovering its unpacked mod root for asset references. */
+export async function recheckStandaloneFile(filePath: string): Promise<CheckIssue[]> {
+    return invokeCommand('recheck_standalone_file', { filePath });
+}
+
 /** One declaration retype an audit finding says is safe to apply. */
 export interface RetypeRequest {
     /** Folder-relative path, exactly as `CheckIssue.file` carries it. */

@@ -128,6 +128,20 @@ pub async fn recheck_project_file(
     .map_err(|e| format!("Recheck task failed: {}", e))?
 }
 
+/// Runs the shared checks without requiring a Flint project.
+#[tauri::command]
+pub async fn recheck_standalone_file(
+    app: tauri::AppHandle,
+    file_path: String,
+) -> Result<Vec<CheckIssue>, String> {
+    super::meta_schema::refresh(&app).await;
+    tokio::task::spawn_blocking(move || {
+        flint_core::bin::check_file_path(Path::new(&file_path))
+    })
+    .await
+    .map_err(|e| format!("Recheck task failed: {e}"))?
+}
+
 /// One declaration retype an audit finding says is safe to apply.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RetypeRequest {
