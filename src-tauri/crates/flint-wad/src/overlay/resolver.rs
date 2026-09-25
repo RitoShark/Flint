@@ -1,9 +1,12 @@
-//! Hash resolution with a fixed fallback chain: project overlay → global LMDB
-//! → hex. Game-file call sites construct a resolver with no overlay; only
+//! Hash resolution: project overlay → global LMDB → extracted paths → hex.
+//! Game-file call sites construct a resolver with no project overlay; only
 //! project-aware call sites attach one.
 
 use flint_hash::hash::lmdb_cache::{get_wad_env, resolve_hashes_lmdb, resolve_hashes_lmdb_bulk, ResolvedHashes};
 use crate::overlay::overlay::ProjectHashOverlay;
+use crate::wad::extracted_overlay::wad_overlay;
+use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 
 /// Owns the global hash environment plus an optional project overlay.
@@ -13,15 +16,17 @@ use std::sync::Arc;
 pub struct HashResolver {
     pub(crate) wad_env: Option<Arc<heed::Env>>,
     pub(crate) overlay: Option<Arc<ProjectHashOverlay>>,
+    extracted: Arc<HashMap<u64, Arc<str>>>,
 }
 
 impl HashResolver {
-    /// Global database only. Use this for game files — a project overlay must
+    /// Global database and extracted names. Use this for game files — a project overlay must
     /// never influence how a Riot-shipped WAD resolves.
     pub fn global(hash_dir: &str) -> Self {
         Self {
             wad_env: get_wad_env(hash_dir),
             overlay: None,
+            extracted: wad_overlay(Path::new(hash_dir)),
         }
     }
 
@@ -30,6 +35,7 @@ impl HashResolver {
         Self {
             wad_env: get_wad_env(hash_dir),
             overlay: Some(overlay),
+            extracted: wad_overlay(Path::new(hash_dir)),
         }
     }
 
@@ -38,6 +44,7 @@ impl HashResolver {
         Self {
             wad_env: get_wad_env(hash_dir),
             overlay: overlay.cloned(),
+            extracted: wad_overlay(Path::new(hash_dir)),
         }
     }
 
@@ -47,14 +54,13 @@ impl HashResolver {
 
     /// Whether the global WAD hash database is available.
     ///
-    /// `resolve_wad` degrades to hex when it is not, which is indistinguishable
-    /// from "every hash missed" — callers that must not proceed on an unusable
-    /// database check this first.
+    /// Extracted names may still resolve some hashes without it. Callers that
+    /// require the downloaded game database check this first.
     pub fn has_global_wad(&self) -> bool {
         self.wad_env.is_some()
     }
 
-    /// Resolve WAD path hashes: overlay → global LMDB → 16-hex fallback.
+    /// Resolve WAD paths, using extracted names even without a global database.
     pub fn resolve_wad(&self, hashes: &[u64]) -> Vec<String> {
         // Resolve through LMDB once, then let overlay hits override. This keeps
         // the single bulk LMDB call rather than querying per hash.
@@ -63,6 +69,13 @@ impl HashResolver {
             None => hashes.iter().map(|h| format!("{:016x}", h)).collect(),
         };
 
+        for (i, hash) in hashes.iter().enumerate() {
+            if let Some(path) = self.extracted.get(hash) {
+                if out[i] == format!("{:016x}", hash) {
+                    out[i] = path.to_string();
+                }
+            }
+        }
         if let Some(overlay) = &self.overlay {
             for (i, hash) in hashes.iter().enumerate() {
                 if let Some(path) = overlay.wad_get(*hash) {
@@ -81,6 +94,15 @@ impl HashResolver {
             Some(env) => resolve_hashes_lmdb_bulk(hashes, env),
             None => ResolvedHashes::default(),
         };
+        if !self.extracted.is_empty() {
+            for hash in hashes {
+                if !out.contains_key(hash) {
+                    if let Some(path) = self.extracted.get(hash) {
+                        out.insert(*hash, path);
+                    }
+                }
+            }
+        }
         if let Some(overlay) = &self.overlay {
             for h in hashes {
                 if let Some(path) = overlay.wad_get(*h) {
@@ -96,12 +118,56 @@ impl HashResolver {
 mod tests {
     use super::*;
 
+    #[test]
+    fn extracted_paths_resolve_without_lmdb_and_refresh_after_scan() {
+        let dir = tempfile::tempdir().unwrap();
+        let hash_dir = dir.path().to_str().unwrap();
+        let path = "custom mod/textures/body.dds";
+        let hash = flint_hash::hash::wad_chunk_hash(path);
+        assert!(HashResolver::global(hash_dir).resolve_wad_bulk(&[hash]).is_empty());
+
+        std::fs::write(dir.path().join("hashes.extracted.txt"), format!("{hash:016x} {path}\n")).unwrap();
+        crate::wad::extracted_overlay::invalidate();
+        for resolver in [
+            HashResolver::global(hash_dir),
+            HashResolver::new(hash_dir, None),
+            HashResolver::with_overlay(hash_dir, Arc::new(ProjectHashOverlay::new())),
+        ] {
+            assert!(!resolver.has_global_wad());
+            assert_eq!(resolver.resolve_wad(&[hash, 1]), vec![path.to_string(), "0000000000000001".to_string()]);
+            let bulk = resolver.resolve_wad_bulk(&[hash, 1]);
+            assert_eq!(bulk.get(&hash), Some(path));
+            assert!(!bulk.contains_key(&1));
+        }
+    }
+
+    #[test]
+    fn extracted_paths_do_not_override_database_or_project_names() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = "assets/project/body.dds";
+        let hash = flint_hash::hash::wad_chunk_hash(path);
+        let env = write_test_wad_env(dir.path(), hash, "assets/global/body.dds");
+        let mut resolver = HashResolver {
+            wad_env: Some(Arc::new(env)),
+            overlay: None,
+            extracted: Arc::new(HashMap::from([(hash, Arc::from("assets/extracted/body.dds"))])),
+        };
+        assert_eq!(resolver.resolve_wad(&[hash]), vec!["assets/global/body.dds"]);
+        assert_eq!(resolver.resolve_wad_bulk(&[hash]).get(&hash), Some("assets/global/body.dds"));
+        let mut overlay = ProjectHashOverlay::new();
+        overlay.insert_wad(hash, path);
+        resolver.overlay = Some(Arc::new(overlay));
+        assert_eq!(resolver.resolve_wad(&[hash]), vec![path]);
+        assert_eq!(resolver.resolve_wad_bulk(&[hash]).get(&hash), Some(path));
+    }
+
     /// A resolver with no LMDB envs at all — isolates overlay-vs-hex behavior
     /// from whatever hash databases happen to be installed on the machine.
     fn overlay_only(overlay: ProjectHashOverlay) -> HashResolver {
         HashResolver {
             wad_env: None,
             overlay: Some(Arc::new(overlay)),
+            extracted: Arc::default(),
         }
     }
 
@@ -157,13 +223,13 @@ mod tests {
 
     #[test]
     fn a_resolver_without_an_overlay_reports_so() {
-        let r = HashResolver { wad_env: None, overlay: None };
+        let r = HashResolver { wad_env: None, overlay: None, extracted: Arc::default() };
         assert!(!r.has_overlay());
     }
 
     #[test]
     fn a_resolver_with_no_wad_env_reports_no_global_wad() {
-        let r = HashResolver { wad_env: None, overlay: None };
+        let r = HashResolver { wad_env: None, overlay: None, extracted: Arc::default() };
         assert!(!r.has_global_wad());
     }
 
@@ -204,7 +270,7 @@ mod tests {
     fn a_global_resolver_ignores_project_paths_entirely() {
         // A game-file resolver must not resolve a project's invented path even
         // when an overlay exists elsewhere in the process.
-        let r = HashResolver { wad_env: None, overlay: None };
+        let r = HashResolver { wad_env: None, overlay: None, extracted: Arc::default() };
         let invented = xxhash_rust::xxh64::xxh64(b"assets/perso/mymod/ghost.dds", 0);
 
         assert_eq!(r.resolve_wad(&[invented]), vec![format!("{:016x}", invented)]);
@@ -246,6 +312,7 @@ mod tests {
         let r = HashResolver {
             wad_env: Some(std::sync::Arc::new(env)),
             overlay: Some(Arc::new(o)),
+            extracted: Arc::default(),
         };
 
         assert_eq!(
@@ -264,6 +331,7 @@ mod tests {
         let r = HashResolver {
             wad_env: Some(std::sync::Arc::new(env)),
             overlay: None,
+            extracted: Arc::default(),
         };
 
         // Proves the LMDB arm executes at all — every other test in this file

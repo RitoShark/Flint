@@ -4,7 +4,7 @@
 //! PROP/PTCH (BIN) chunks are scanned with two complementary passes:
 //!
 //! 1. **Length-prefixed pass** — sliding 1-byte window matching u16-length
-//!    UTF-8 records that start with one of [`PATH_PREFIXES`].
+//!    UTF-8 records with a known root or asset extension (including custom roots).
 //! 2. **Free-form ASCII pass** — walks contiguous runs of path-safe
 //!    bytes (alnum + `/._-`) and accepts any run that contains `/` AND
 //!    ends with a known asset extension, catching paths that don't start
@@ -80,6 +80,9 @@ const KNOWN_EXTENSIONS: &[&str] = &[
     ".sco",
     ".nvr",
     ".wpk",
+    ".wem",
+    ".scn",
+    ".webp",
     ".fx",
     ".py",
 ];
@@ -147,11 +150,18 @@ fn scan_length_prefixed(data: &[u8], out: &mut HashMap<u64, String>) {
             if let Some(slice) = data.get(i + 2..i + 2 + len) {
                 if let Ok(s) = std::str::from_utf8(slice) {
                     let lb = s.as_bytes();
-                    let is_path = s.contains('/')
-                        && s.is_ascii()
-                        && PATH_PREFIXES
-                            .iter()
-                            .any(|p| lb.len() >= p.len() && lb[..p.len()].eq_ignore_ascii_case(p));
+                    let known_root = PATH_PREFIXES
+                        .iter()
+                        .any(|p| lb.len() >= p.len() && lb[..p.len()].eq_ignore_ascii_case(p));
+                    // Unlike the free-form pass, the length prefix preserves
+                    // spaces and punctuation in custom folder/file names.
+                    let is_path = s.is_ascii()
+                        && !s.bytes().any(|b| {
+                            b.is_ascii_control()
+                                || matches!(b, b'\\' | b':' | b'"' | b'<' | b'>' | b'|' | b'?' | b'*')
+                        })
+                        && validate_path_shape(s)
+                        && (known_root || ends_with_known_ext(s));
                     if is_path {
                         enroll(s, out);
                         i += 2 + len;
@@ -205,6 +215,9 @@ fn validate_path_shape(s: &str) -> bool {
         return false;
     }
     if s.contains("//") {
+        return false;
+    }
+    if s.split('/').any(|part| part == "." || part == ".." || part.is_empty()) {
         return false;
     }
     // Need at least one alpha byte before the first `/` so we don't
@@ -293,6 +306,45 @@ pub fn scan_chunk_for_bin_names(data: &[u8]) -> Vec<(u32, String)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn bin_with_path(magic: &[u8], path: &str) -> Vec<u8> {
+        let mut data = magic.to_vec();
+        data.extend_from_slice(&(path.len() as u16).to_le_bytes());
+        data.extend_from_slice(path.as_bytes());
+        data
+    }
+
+    #[test]
+    fn custom_folders_preserve_spaces_and_punctuation() {
+        for magic in [b"PROP", b"PTCH"] {
+            for path in ["My Mod/Textures/Body (Final).DDS", "Custom Audio/voice.wem", "Custom Scene/world.scn", "My UI/icon.webp"] {
+                let hits: HashMap<_, _> = scan_chunk_for_paths(&bin_with_path(magic, path)).into_iter().collect();
+                let lower = path.to_ascii_lowercase();
+                assert_eq!(hits.get(&xxhash_path(&lower)), Some(&lower));
+            }
+        }
+    }
+
+    #[test]
+    fn custom_root_recovers_texture_variants_and_bin_sidecars() {
+        for (path, expected) in [
+            ("My Mod/body.dds", "my mod/2x_body.dds"),
+            ("My Mod/body.dds", "my mod/4x_body.dds"),
+            ("My Mod/skin.bin", "my mod/skin.py"),
+        ] {
+            let hits: HashMap<_, _> = scan_chunk_for_paths(&bin_with_path(b"PROP", path)).into_iter().collect();
+            assert_eq!(hits.get(&xxhash_path(expected)).map(String::as_str), Some(expected));
+        }
+    }
+
+    #[test]
+    fn length_prefixed_paths_reject_traversal_and_control_bytes() {
+        for path in ["assets/../secret.dds", "assets/./secret.dds", "assets/bad\nname.dds", "assets//bad.dds"] {
+            let mut hits = HashMap::new();
+            scan_length_prefixed(&bin_with_path(b"PROP", path), &mut hits);
+            assert!(hits.is_empty(), "accepted invalid path: {path:?}");
+        }
+    }
 
     #[test]
     fn xxhash_is_deterministic() {

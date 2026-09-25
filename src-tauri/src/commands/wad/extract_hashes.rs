@@ -1,8 +1,8 @@
 //! Extract WAD path hashes from BIN/SKN chunks.
 //!
 //! * **Game hashes** (xxhash64) — length-prefixed UTF-8 asset-path strings
-//!   inside `PROP`/`PTCH` BIN files (prefixed `assets/`, `data/`, `maps/`,
-//!   `levels/`, `clientstates/`, `ux/`, `uiautoatlas/`). `.dds` paths also emit
+//!   inside `PROP`/`PTCH` BIN files, including custom folder roots and
+//!   free-form asset references. `.dds` paths also emit
 //!   `2x_`/`4x_` variants; `.bin` paths emit their `.py` cousin.
 //! * **BIN hashes** (fnv1a-lower 32-bit) — null-terminated mesh range names
 //!   inside SKN files (magic `0x00112233`).
@@ -22,121 +22,18 @@ use flint_core::heed::Database;
 
 // ─── Scanners (port of Quartz's bin_hashes.rs) ──────────────────────────────
 
-const PATH_PREFIXES: &[&[u8]] = &[
-    b"assets/",
-    b"data/",
-    b"maps/",
-    b"levels/",
-    b"clientstates/",
-    b"ux/",
-    b"uiautoatlas/",
-];
-
-fn xxhash_path(s: &str) -> u64 {
-    xxhash_rust::xxh64::xxh64(s.as_bytes(), 0)
-}
-
-fn fnv1a_lower(s: &str) -> u32 {
-    let mut h: u32 = 0x811c9dc5;
-    for b in s.bytes().map(|b| b.to_ascii_lowercase()) {
-        h ^= b as u32;
-        h = h.wrapping_mul(0x01000193);
-    }
-    h
-}
-
-/// Scan a BIN (`PROP` / `PTCH`) for length-prefixed asset paths.
-fn scan_bin_game_hashes(data: &[u8]) -> Vec<(u64, String)> {
-    if data.len() < 4 {
-        return vec![];
-    }
-    if &data[..4] != b"PROP" && &data[..4] != b"PTCH" {
-        return vec![];
-    }
-    let mut results = Vec::new();
-    let mut i = 0usize;
-    while i + 2 <= data.len() {
-        let len = u16::from_le_bytes([data[i], data[i + 1]]) as usize;
-        if (8..=300).contains(&len) {
-            if let Some(slice) = data.get(i + 2..i + 2 + len) {
-                if let Ok(s) = std::str::from_utf8(slice) {
-                    let lb = s.as_bytes();
-                    let is_path = s.contains('/')
-                        && s.is_ascii()
-                        && PATH_PREFIXES
-                            .iter()
-                            .any(|p| lb.len() >= p.len() && lb[..p.len()].eq_ignore_ascii_case(p));
-                    if is_path {
-                        let lower = s.to_ascii_lowercase();
-                        results.push((xxhash_path(&lower), lower.clone()));
-                        if lower.ends_with(".dds") {
-                            let slash = lower.rfind('/').map(|v| v + 1).unwrap_or(0);
-                            let dir = &lower[..slash];
-                            let fname = &lower[slash..];
-                            let v2x = format!("{}2x_{}", dir, fname);
-                            let v4x = format!("{}4x_{}", dir, fname);
-                            results.push((xxhash_path(&v2x), v2x));
-                            results.push((xxhash_path(&v4x), v4x));
-                        }
-                        if lower.ends_with(".bin") {
-                            let py = format!("{}.py", &lower[..lower.len() - 4]);
-                            results.push((xxhash_path(&py), py));
-                        }
-                        i += 2 + len;
-                        continue;
-                    }
-                }
-            }
-        }
-        i += 1;
-    }
-    results
-}
-
-/// Scan a SKN file for mesh range names.
-fn scan_skn_bin_hashes(data: &[u8]) -> Vec<(u32, String)> {
-    if data.len() < 12 {
-        return vec![];
-    }
-    let magic = u32::from_le_bytes([data[0], data[1], data[2], data[3]]);
-    if magic != 0x0011_2233 {
-        return vec![];
-    }
-    let major = u16::from_le_bytes([data[4], data[5]]);
-    if major == 0 {
-        return vec![];
-    }
-    let range_count = u32::from_le_bytes([data[8], data[9], data[10], data[11]]) as usize;
-    if range_count == 0 || range_count > 256 {
-        return vec![];
-    }
-    let mut results = Vec::with_capacity(range_count);
-    let mut pos = 12usize;
-    for _ in 0..range_count {
-        if pos + 80 > data.len() {
-            break;
-        }
-        let name_bytes = &data[pos..pos + 64];
-        let null_pos = name_bytes.iter().position(|&b| b == 0).unwrap_or(64);
-        if let Ok(name) = std::str::from_utf8(&name_bytes[..null_pos]) {
-            if !name.is_empty() {
-                results.push((fnv1a_lower(name), name.to_string()));
-            }
-        }
-        pos += 80;
-    }
-    results
-}
+// Share recovery behavior between manual unhash and archive imports.
+use flint_core::wad::hash_scanner::{scan_chunk_for_bin_names, scan_chunk_for_paths};
 
 pub(crate) fn scan_one(
     data: &[u8],
     game_out: &mut BTreeMap<u64, String>,
     bin_out: &mut BTreeMap<u32, String>,
 ) {
-    for (k, v) in scan_bin_game_hashes(data) {
+    for (k, v) in scan_chunk_for_paths(data) {
         game_out.entry(k).or_insert(v);
     }
-    for (k, v) in scan_skn_bin_hashes(data) {
+    for (k, v) in scan_chunk_for_bin_names(data) {
         bin_out.entry(k).or_insert(v);
     }
 }
@@ -261,6 +158,7 @@ pub(crate) fn extract_and_merge_hashes(
     let game_for_lmdb = game.clone();
     let bin_for_lmdb = bin.clone();
     let (added_game, added_bin) = write_merged(hash_dir, game, bin)?;
+    flint_core::wad::extracted_overlay::invalidate();
 
     let hash_dir_str = hash_dir.to_string_lossy().to_string();
     let mut written = 0usize;
@@ -282,7 +180,7 @@ pub(crate) fn extract_and_merge_hashes(
        this the bin editor kept rendering `0x…` for paths that were now on disk —
        extraction appeared to work, editing a bin did not, and restarting the app
        "fixed" it. Reload so the names are live for the next render. */
-    if written > 0 {
+    if written > 0 || added_game > 0 || added_bin > 0 {
         tracing::info!("Extraction added {written} hash name(s); reloading the resolver cache");
         flint_core::bin::reload_bin_hash_cache();
     }
