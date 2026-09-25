@@ -517,6 +517,7 @@ fn main() {
             // Shader preview (flint-shaderforge boundary; stub answers when
             // the private overlay isn't compiled in)
             commands::shaderforge::translate_material_shader,
+            commands::shaderforge::shader_preview_available,
             commands::shaderforge::locate_shader_cache,
             commands::shaderforge::read_skn_generic_materials_disk,
             commands::shaderforge::wad_read_skn_generic_materials,

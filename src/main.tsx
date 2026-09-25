@@ -8,7 +8,7 @@ import { createRoot } from 'react-dom/client';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { invoke } from '@tauri-apps/api/core';
 import { initializeLogger, initBackendLogListener } from './lib/util/logger';
-import { shaderForgeAvailable } from '@shaderforge';
+import { shaderPreviewAvailable } from './lib/shaderPreview';
 import { AppProvider } from './lib/stores';
 import { useConfigStore } from './lib/stores/configStore';
 import { bootUxPrefs } from './lib/stores/uxStore';
@@ -61,7 +61,7 @@ console.log(`[startup] imports resolved in ${(performance.now() - __FLINT_JS_STA
 
 initializeLogger();
 // eslint-disable-next-line no-console
-console.log(`[startup] shader preview module: ${shaderForgeAvailable ? 'available' : 'stub'}`);
+void shaderPreviewAvailable().then(available => console.log(`[startup] shader preview: ${available ? 'available' : 'unavailable in this build'}`));
 // bootUxPrefs() applies the persisted button-glow preference, which attaches
 // the cursor listener only when the user has opted in.
 bootUxPrefs();

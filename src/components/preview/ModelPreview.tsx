@@ -39,6 +39,7 @@ import { SubmeshVisibilityTimeline, fnv1a32Lower } from '../../lib/babylon/subme
 import type { AnimationClipInfo, SkinForm, SubmeshVisEvent } from '../../lib/api/mesh';
 import { modelPreviewSessionStore, type ModelPreviewSession } from '../../lib/stores/modelPreviewSessionStore';
 import { shaderForgeAvailable, loadShaderForge } from '@shaderforge';
+import { shaderPreviewAvailable } from '../../lib/shaderPreview';
 import { readModelIdleEffects, type IdleEffectData } from '../../lib/api/idleEffects';
 import { playIdleEffects } from '../../lib/vfx/native/player';
 
@@ -340,6 +341,12 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             return false;
         }
     });
+    const [shaderReady, setShaderReady] = useState(false);
+    useEffect(() => {
+        let active = true;
+        void shaderPreviewAvailable().then(ready => { if (active) setShaderReady(ready); });
+        return () => { active = false; };
+    }, []);
     const gameShadersRef = useRef(gameShaders);
     gameShadersRef.current = gameShaders;
     const prevMaterialsRef = useRef<Map<Mesh, { mat: Material | null; alphaIndex: number }>>(new Map());
@@ -353,6 +360,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         const aborted = () =>
             s.isDisposed || token !== passTokenRef.current || !gameShadersRef.current;
         try {
+            if (!await shaderPreviewAvailable() || aborted()) return;
             const res = await api.readSknGenericMaterials(filePath);
             const matCount =
                 (res as { materials?: unknown[] } | null)?.materials?.length ?? 0;
@@ -1666,7 +1674,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             {activePopup === 'display' && (
                 <MpPopup title="Display & Skeleton" side="right" onClose={() => setActivePopup(null)}>
                     <MpToggleRow label="Wireframe" checked={wireframe} onChange={setWireframe} />
-                    {shaderForgeAvailable && meshType === 'skinned' && (
+                    {shaderReady && meshType === 'skinned' && (
                         <MpToggleRow
                             label="Game shaders"
                             desc="Game-accurate materials (slower)"

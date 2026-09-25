@@ -7,6 +7,11 @@
 
 use std::collections::HashMap;
 
+#[tauri::command]
+pub fn shader_preview_available() -> bool {
+    cfg!(feature = "shaderforge")
+}
+
 fn to_value<T: serde::Serialize>(v: T) -> Result<serde_json::Value, String> {
     serde_json::to_value(v).map_err(|e| e.to_string())
 }
