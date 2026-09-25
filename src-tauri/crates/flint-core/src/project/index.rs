@@ -8,11 +8,12 @@ use crate::project::project::ProjectKind;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs::{self, File};
-use std::io::{BufReader, BufWriter};
+use std::io::{BufReader, Write};
 use std::path::{Path, PathBuf};
 
 /// Written at the projects root, not inside any individual project directory.
 const INDEX_FILE: &str = "projects.json";
+static INDEX_WRITE_LOCK: parking_lot::Mutex<()> = parking_lot::Mutex::new(());
 
 /// Paths whose corrupt-index warning has already been logged this process, so
 /// repeated `read_index` calls at startup don't flood the log with the same line.
@@ -102,13 +103,27 @@ pub fn read_index(projects_root: &Path) -> ProjectIndex {
 
 /// Creates the projects root directory if missing.
 pub fn write_index(projects_root: &Path, index: &ProjectIndex) -> Result<()> {
+    let _write_guard = INDEX_WRITE_LOCK.lock();
     fs::create_dir_all(projects_root)
         .map_err(|e| Error::io_with_path(e, projects_root))?;
     let path = index_path(projects_root);
-    let file = File::create(&path).map_err(|e| Error::io_with_path(e, &path))?;
-    serde_json::to_writer_pretty(BufWriter::new(file), index)
+    let mut file = tempfile::NamedTempFile::new_in(projects_root)
+        .map_err(|e| Error::io_with_path(e, &path))?;
+    serde_json::to_writer_pretty(file.as_file_mut(), index)
         .map_err(|e| Error::InvalidInput(format!("Failed to write {}: {}", path.display(), e)))?;
-    Ok(())
+    file.flush().map_err(|e| Error::io_with_path(e, &path))?;
+    file.as_file().sync_all().map_err(|e| Error::io_with_path(e, &path))?;
+    for attempt in 0..5 {
+        match file.persist(&path) {
+            Ok(_) => return Ok(()),
+            Err(e) if cfg!(windows) && attempt < 4 && e.error.kind() == std::io::ErrorKind::PermissionDenied => {
+                file = e.file;
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            Err(e) => return Err(Error::io_with_path(e.error, &path)),
+        }
+    }
+    unreachable!()
 }
 
 // ── Mutation helpers ────────────────────────────────────────────────────────
@@ -170,6 +185,28 @@ pub fn remove_by_path(projects_root: &Path, path: &Path) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn concurrent_index_replacements_remain_complete_json() {
+        let dir = tempfile::tempdir().unwrap();
+        std::thread::scope(|scope| {
+            for count in [1, 20, 2, 40] {
+                let root = dir.path();
+                scope.spawn(move || {
+                    for _ in 0..10 {
+                        let index = ProjectIndex {
+                            schema_version: 1,
+                            entries: (0..count).map(|i| entry(&i.to_string(), "C:/project")).collect(),
+                        };
+                        write_index(root, &index).unwrap();
+                        let bytes = fs::read(index_path(root)).unwrap();
+                        let read: ProjectIndex = serde_json::from_slice(&bytes).unwrap();
+                        assert!([1, 20, 2, 40].contains(&read.entries.len()));
+                    }
+                });
+            }
+        });
+    }
 
     fn entry(pid: &str, path: &str) -> ProjectIndexEntry {
         let now = Utc::now();

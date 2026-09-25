@@ -74,6 +74,7 @@ xxhash-rust = { version = "0.8", features = ["xxh64"] }
 camino = "1.1"
 walkdir.workspace = true
 directories = "5.0"
+tempfile = "3"
 
 # Hashing/crypto (checkpoint content digests)
 sha2 = "0.10.9"
@@ -99,6 +100,3 @@ tracing.workspace = true
 # Windows registry access (Windows only)
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
-
-[dev-dependencies]
-tempfile = "3"
