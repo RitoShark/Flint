@@ -26,6 +26,7 @@ const LINKED_PATH_SAMPLE_LIMIT: usize = 8;
 // across the install while preventing runaway growth.
 const POLYMORPHIC_LIST_CLASS_LIMIT: usize = 16;
 const MAP_CLASS_LIMIT: usize = 12;
+const CONTEXTUAL_SITUATION_CLASS: u32 = 0xfc27a63e;
 
 // =============================================================================
 // Progress / public stats
@@ -281,19 +282,23 @@ fn merge_list_items(field: &mut FieldSchema, items: &[BinValue]) {
     }
 }
 
-/** Keeps the first entry seen for each distinct value class in maps. */
 fn merge_map_entries(field: &mut FieldSchema, entries: &[(BinValue, BinValue)]) {
     for (key, value) in entries {
-        let keep = match class_of(value) {
-            Some(class) => {
-                field.map_classes.len() < MAP_CLASS_LIMIT && field.map_classes.insert(class)
-            }
-            None => {
-                let room = field.map_classless < SAMPLE_LIMIT_COMPLEX;
-                if room {
-                    field.map_classless += 1;
+        let is_contextual_situation = class_of(value) == Some(CONTEXTUAL_SITUATION_CLASS);
+        let keep = if is_contextual_situation {
+            !field.map_entries.iter().any(|(k, _)| k == key)
+        } else {
+            match class_of(value) {
+                Some(class) => {
+                    field.map_classes.len() < MAP_CLASS_LIMIT && field.map_classes.insert(class)
                 }
-                room
+                None => {
+                    let room = field.map_classless < SAMPLE_LIMIT_COMPLEX;
+                    if room {
+                        field.map_classless += 1;
+                    }
+                    room
+                }
             }
         };
         if keep {
@@ -927,4 +932,26 @@ mod tests {
         assert_eq!(f.list_items[1], BinValue::String("Kayn".into()));
         assert_eq!(f.list_items[2], BinValue::String("Zed".into()));
     }
+
+    #[test]
+    fn contextual_situation_maps_collect_all_distinct_situations() {
+        let mut f = field();
+        let situation_val = BinValue::Embed {
+            class: CONTEXTUAL_SITUATION_CLASS,
+            fields: IndexMap::new(),
+        };
+        let entries = vec![
+            (BinValue::Hash(0x1111), situation_val.clone()),
+            (BinValue::Hash(0x2222), situation_val.clone()),
+            (BinValue::Hash(0x1111), situation_val.clone()),
+            (BinValue::Hash(0x3333), situation_val.clone()),
+        ];
+        merge_map_entries(&mut f, &entries);
+
+        assert_eq!(f.map_entries.len(), 3);
+        assert_eq!(f.map_entries[0].0, BinValue::Hash(0x1111));
+        assert_eq!(f.map_entries[1].0, BinValue::Hash(0x2222));
+        assert_eq!(f.map_entries[2].0, BinValue::Hash(0x3333));
+    }
 }
+
