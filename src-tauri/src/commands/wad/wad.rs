@@ -36,7 +36,7 @@ pub async fn read_wad(path: String) -> Result<WadInfo, String> {
 /// Loads chunk metadata for multiple WAD files in one call, returning a compact
 /// binary payload via `tauri::ipc::Response`.
 ///
-/// Phase 1: parallel WAD header parsing (rayon). Phase 2: collect + dedup all
+/// Phase 1: sequential WAD header parsing. Phase 2: collect + dedup all
 /// unique hashes. Phase 3: single LMDB read txn resolves every unique hash.
 /// Phase 4: encode the per-WAD binary blocks.
 ///
@@ -62,9 +62,14 @@ pub async fn load_all_wad_chunks(
     let cache = wad_cache_state.get();
     let overlay = overlay_state.get();
 
-    tokio::task::spawn_blocking(move || load_all_wad_chunks_blocking(paths, cache, overlay))
-        .await
-        .map_err(|e| format!("Task panic: {}", e))?
+    static INDEX_GATE: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
+    let permit = INDEX_GATE.acquire().await.map_err(|e| e.to_string())?;
+    tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        load_all_wad_chunks_blocking(paths, cache, overlay)
+    })
+    .await
+    .map_err(|e| format!("Task panic: {}", e))?
 }
 
 fn load_all_wad_chunks_blocking(
@@ -79,10 +84,9 @@ fn load_all_wad_chunks_blocking(
         .unwrap_or_default();
     let resolver = HashResolver::new(&hash_dir, overlay.as_ref());
 
-    // Phase 1: parallel WAD header reads (rayon).
     let t_phase1 = Instant::now();
     let toc_results: Vec<(String, Result<Arc<Vec<_>>, String>)> = paths
-        .par_iter()
+        .iter()
         .map(|wad_path| {
             let result: Result<Arc<Vec<_>>, String> = (|| {
                 if let Some(cached) = cache.get(wad_path) {

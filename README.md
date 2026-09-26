@@ -189,6 +189,7 @@ npm run tauri dev
 
 ## Notes
 
+- See [WAD browser troubleshooting](docs/troubleshooting.md) for loading errors and Windows storage crashes.
 - The in-game shader replication comes from a closed source repo. It is not public and is not going to be.
 - This project is not affiliated with Riot Games. League of Legends and its assets belong to Riot.
 - See [CONTRIBUTING.md](CONTRIBUTING.md) if you want to send a PR.
