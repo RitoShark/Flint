@@ -6,6 +6,7 @@ import type { BaseTexture } from '@babylonjs/core/Materials/Textures/baseTexture
 import type { BuiltMapMesh } from './mapMeshBuilder';
 import { createUvPass, type UvPass, type UvGroup } from './uvPaintPass';
 import { falloff, type Brush } from './paintEngine';
+import { mapAlphaCutoff } from './mapAlpha';
 import { PaintStroke, addressUv, copyPatch, type PaintSurface, type PaintPatch, type ProjectedSample } from './paintStroke';
 
 export interface MapPaintSurface extends PaintSurface { texs: RawTexture[] }
@@ -123,7 +124,7 @@ export class MapPainter {
                 const id = this.targets.length;
                 this.targets.push({ built, surface: built.texturePath ? this.surfaces().get(built.texturePath) : undefined });
                 // Unpaintable foreground meshes still occlude surfaces behind them.
-                this.groups.push({ texId: id, meshes: [built.mesh], alphaTexture: this.texture(built), alphaCutoff: built.material?.alpha_test ?? 0.5 });
+                this.groups.push({ texId: id, meshes: [built.mesh], alphaTexture: this.texture(built), alphaCutoff: mapAlphaCutoff(built.material) });
             }
         }
         if (!this.pass.renderGroups(this.groups)) return false;

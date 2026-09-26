@@ -192,7 +192,7 @@ export function classifyBaronStage(submeshName: string): BaronStage | null {
  *  keeps each mesh's variant membership unambiguous. */
 function groupKey(materials: Record<string, MapMaterial>, sm: SubmeshRange): string {
     const m = materials[sm.name];
-    const tex = m ? `${m.path}|${m.address_u}|${m.address_v}` : `__notex__${sm.name}`;
+    const tex = m ? JSON.stringify([m.path, m.address_u, m.address_v, m.alpha_test ?? 0, m.translucent, m.tint_color]) : `__notex__${sm.name}`;
     const layer = effectiveLayer(sm.layer ?? 0xff, sm.name);
     return `${layer}::${tex}::${sm.lightmap ?? ''}`;
 }

@@ -877,7 +877,7 @@ fn tex_as_dds(data: &[u8]) -> Option<(Vec<u8>, bool)> {
     for (offset, size) in &mips {
         out.extend_from_slice(&payload[*offset..*offset + *size]);
     }
-    Some((out, matches!(format, TexFormat::Bc3)))
+    Some((out, true))
 }
 
 enum MapTexturePayload {
@@ -1275,6 +1275,22 @@ mod tests {
         // The payload is copied, not re-encoded.
         assert_eq!(dds.len(), 128 + top);
         assert_eq!(&dds[128..], &blocks[..]);
+    }
+
+    #[test]
+    fn tex_as_dds_preserves_bc1_cutout_alpha() {
+        for format in [10u8, 11u8] {
+            let mut tex = vec![b'T', b'E', b'X', 0, 4, 0, 4, 0, 0, format, 0, 0];
+            let block = [0, 0, 0, 248, 95, 95, 95, 95];
+            tex.extend_from_slice(&block);
+            let (dds, has_alpha) = tex_as_dds(&tex).unwrap();
+            assert!(has_alpha);
+            assert_eq!(&dds[84..88], b"DXT1");
+            assert_eq!(&dds[128..], &block);
+            let rgba = crate::commands::texture_convert::decode_full_rgba(&dds).unwrap();
+            assert_eq!(rgba.pixels().filter(|p| p.0[3] == 0).count(), 8);
+            assert_eq!(rgba.pixels().filter(|p| p.0[3] == 255).count(), 8);
+        }
     }
 
     /// BC7 has no legacy FourCC, so it must fall through to the RGBA path rather than

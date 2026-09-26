@@ -7,7 +7,6 @@ import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
 import { HemisphericLight } from '@babylonjs/core/Lights/hemisphericLight';
 import { Mesh } from '@babylonjs/core/Meshes/mesh';
 import { PBRMaterial } from '@babylonjs/core/Materials/PBR/pbrMaterial';
-import { Material } from '@babylonjs/core/Materials/material';
 import { ShaderMaterial } from '@babylonjs/core/Materials/shaderMaterial';
 import { RawTexture } from '@babylonjs/core/Materials/Textures/rawTexture';
 import type { BaseTexture } from '@babylonjs/core/Materials/Textures/baseTexture';
@@ -38,6 +37,7 @@ import { MapPainter, uploadPaintPatches, type MapPaintSurface } from '../../lib/
 import { PaintHistory } from '../../lib/babylon/paintStroke';
 import { loadBatches, waitForLoad, type MapLoadProgress } from '../../lib/babylon/mapLoading';
 import { MapLoadingBar } from './MapLoadingBar';
+import { applyMapAlpha, mapAlphaCutoff } from '../../lib/babylon/mapAlpha';
 
 /** Riot's AUTHORED texture address-mode enum -> Babylon.
  *
@@ -94,9 +94,6 @@ function createMapTexture(
     }
     tex.wrapU = addressMode(addressU);
     tex.wrapV = addressMode(addressV);
-    // Only what the FILE carries. Forcing this on turned every BC1 surface into an
-    // alpha-tested one, so any block the encoder wrote in punch-through mode cut a
-    // hole in solid terrain.
     tex.hasAlpha = entry.hasAlpha;
     return tex;
 }
@@ -356,23 +353,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 mat.albedoTexture = tex;
                 mat.albedoColor = tintColor(material?.tint_color ?? null);
                 mat.backFaceCulling = false;
-                if (!tex.hasAlpha) {
-                    mat.transparencyMode = Material.MATERIAL_OPAQUE;
-                    continue;
-                }
-                mat.useAlphaFromAlbedoTexture = true;
-                if (material?.translucent) {
-                    // Authored alpha-BLEND (water, tarps, nets): composite instead of
-                    // hard-cutting, and do not write depth so what is behind shows.
-                    mat.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;
-                    mat.forceDepthWrite = false;
-                } else {
-                    // ALPHATESTANDBLEND is what actually discards on an unlit PBR
-                    // material; plain ALPHATEST renders the cutouts as black boxes.
-                    mat.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHATESTANDBLEND;
-                    mat.alphaCutOff = material?.alpha_test ?? 0.5;
-                    mat.forceDepthWrite = true;
-                }
+                applyMapAlpha(mat, material);
             }
         }
     }, []);
@@ -408,7 +389,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 lightmapCacheRef.current.set(bm.lightmap, lm);
             }
             if (!lm) continue;
-            const cutoff = diffuse.hasAlpha ? (bm.material?.alpha_test ?? 0.5) : 0;
+            const cutoff = mapAlphaCutoff(bm.material);
             bm.mesh.material?.dispose();
             bm.mesh.material = createMapTerrainMaterial(
                 sc, diffuse, lm, env, bm.material?.tint_color ?? null, cutoff,
@@ -423,12 +404,13 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         addressU: number,
         addressV: number,
         mats: MapMat[],
+        material: api.MapMaterial | null,
     ) => {
         try {
             const [entry] = await api.loadMapTextures(projectPath, [texPath], preferCompressedRef.current);
             if (!entry) return;
             applyEntries(
-                [{ path: texPath, u: addressU, v: addressV, mats, material: null }],
+                [{ path: texPath, u: addressU, v: addressV, mats, material }],
                 new Map([[texPath, entry]]),
             );
         } catch (e) {
@@ -444,8 +426,9 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
         texPath: string,
         addressU: number,
         addressV: number,
+        material: api.MapMaterial | null,
     ) => {
-        await loadAndApply(texPath, addressU, addressV, [mat]);
+        await loadAndApply(texPath, addressU, addressV, [mat], material);
     }, [loadAndApply]);
 
     // ── Visibility model ─────────────────────────────────────────────────────
@@ -572,7 +555,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
                 mat.albedoColor = new Color3(0.5, 0.5, 0.5);
                 mesh.material = mat;
                 if (texturePath) {
-                    const key = textureKey(texturePath, addressU, addressV);
+                    const key = JSON.stringify([textureKey(texturePath, addressU, addressV), material?.alpha_test ?? 0, material?.translucent, material?.tint_color]);
                     const slot = byTexture.get(key);
                     if (slot) slot.mats.push(mat);
                     else {
@@ -635,7 +618,7 @@ export const MapPreview: React.FC<MapPreviewProps> = ({ projectPath }) => {
             texCacheRef.current.delete(key);
             paintBufRef.current.delete(texPath);
             if (b.mesh.material) {
-                await applyTexture(b.mesh.material as MapMat, texPath, b.addressU, b.addressV);
+                await applyTexture(b.mesh.material as MapMat, texPath, b.addressU, b.addressV, b.material);
             }
         }
     }, [applyTexture]);
