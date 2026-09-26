@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use flint_hash::error::{Error, Result};
 
 const TREE_URL: &str =
-    "https://api.github.com/repos/Morilli/riot-manifests/git/trees/master?recursive=1";
+    "https://api.github.com/repos/Morilli/riot-manifests/git/trees";
 const RAW_BASE: &str = "https://raw.githubusercontent.com/Morilli/riot-manifests/master";
 
 /// One catalogued manifest version for a (region, platform, kind) triple.
@@ -33,18 +33,20 @@ pub struct CatalogEntry {
     pub version: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct GitTree {
     tree: Vec<GitTreeNode>,
     #[serde(default)]
     truncated: bool,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct GitTreeNode {
     path: String,
     #[serde(rename = "type")]
     node_type: String,
+    #[serde(default)]
+    sha: String,
 }
 
 fn kind_tag(artifact_type: &str) -> &'static str {
@@ -108,8 +110,8 @@ fn entries_from_tree(tree: &GitTree, region: &str, platform: &str) -> Vec<Catalo
     out
 }
 
-fn tree_cache_path(cache_dir: &Path) -> PathBuf {
-    cache_dir.join("riot-manifests-tree.json")
+fn tree_cache_path(cache_dir: &Path, region: &str, platform: &str) -> PathBuf {
+    cache_dir.join(format!("riot-manifests-{}-{}-tree.json", region.to_ascii_lowercase(), platform.to_ascii_lowercase()))
 }
 
 async fn http_get_text(client: &reqwest::Client, url: &str) -> Result<String> {
@@ -132,25 +134,69 @@ async fn http_get_text(client: &reqwest::Client, url: &str) -> Result<String> {
 
 /// Fetch the repo tree JSON (cached to `cache_dir`). When `refresh` is false and a
 /// cached copy exists, it is used verbatim (old manifests never change).
-async fn load_tree(client: &reqwest::Client, cache_dir: &Path, refresh: bool) -> Result<GitTree> {
-    let cache_path = tree_cache_path(cache_dir);
+async fn load_tree(client: &reqwest::Client, cache_dir: &Path, region: &str, platform: &str, refresh: bool) -> Result<GitTree> {
+    for component in [region, platform] {
+        if component.is_empty() || !component.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-') {
+            return Err(Error::Cdn("invalid catalog region or platform".to_string()));
+        }
+    }
+    let cache_path = tree_cache_path(cache_dir, region, platform);
     if !refresh {
         if let Ok(bytes) = tokio::fs::read(&cache_path).await {
             if let Ok(tree) = serde_json::from_slice::<GitTree>(&bytes) {
-                return Ok(tree);
+                if !tree.truncated {
+                    return Ok(tree);
+                }
             }
         }
     }
-    let body = http_get_text(client, TREE_URL).await?;
-    let tree: GitTree =
-        serde_json::from_str(&body).map_err(|e| Error::Cdn(format!("github tree json: {e}")))?;
+    let mut sha = "master".to_string();
+    let mut prefix = String::new();
+    for component in ["LoL", region, platform] {
+        let tree = fetch_tree(client, &sha, false).await?;
+        let node = tree.tree.into_iter().find(|n| n.node_type == "tree" && n.path.eq_ignore_ascii_case(component))
+            .ok_or_else(|| Error::Cdn(format!("catalog directory not found: {prefix}{component}")))?;
+        prefix.push_str(&node.path);
+        prefix.push('/');
+        sha = node.sha;
+    }
+    let mut tree = fetch_tree(client, &sha, true).await?;
     if tree.truncated {
-        tracing::warn!("riot-manifests git tree was truncated by GitHub; some entries may be missing");
+        tree.tree.clear();
+        let mut pending = vec![(sha, String::new())];
+        while let Some((sha, subpath)) = pending.pop() {
+            let part = fetch_tree(client, &sha, false).await?;
+            for mut node in part.tree {
+                node.path = format!("{subpath}{}", node.path);
+                if node.node_type == "tree" {
+                    pending.push((node.sha, format!("{}/", node.path)));
+                } else {
+                    tree.tree.push(node);
+                }
+            }
+        }
+        tree.truncated = false;
+    }
+    for node in &mut tree.tree {
+        node.path = format!("{prefix}{}", node.path);
     }
     if let Some(parent) = cache_path.parent() {
         let _ = tokio::fs::create_dir_all(parent).await;
     }
-    let _ = tokio::fs::write(&cache_path, body.as_bytes()).await;
+    if let Ok(bytes) = serde_json::to_vec(&tree) {
+        let _ = tokio::fs::write(&cache_path, bytes).await;
+    }
+    Ok(tree)
+}
+
+async fn fetch_tree(client: &reqwest::Client, sha: &str, recursive: bool) -> Result<GitTree> {
+    let suffix = if recursive { "?recursive=1" } else { "" };
+    let body = http_get_text(client, &format!("{TREE_URL}/{sha}{suffix}")).await?;
+    let tree: GitTree = serde_json::from_str(&body)
+        .map_err(|e| Error::Cdn(format!("github tree json: {e}")))?;
+    if tree.truncated && !recursive {
+        return Err(Error::Cdn("GitHub returned an incomplete catalog directory".to_string()));
+    }
     Ok(tree)
 }
 
@@ -163,7 +209,7 @@ pub async fn list_versions(
     platform: &str,
     refresh: bool,
 ) -> Result<Vec<CatalogEntry>> {
-    let tree = load_tree(client, cache_dir, refresh).await?;
+    let tree = load_tree(client, cache_dir, region, platform, refresh).await?;
     Ok(entries_from_tree(&tree, region, platform))
 }
 
@@ -301,5 +347,32 @@ mod tests {
             encode_repo_path("Riot Client/KeystoneFoundationLiveWin/x.txt"),
             "Riot%20Client/KeystoneFoundationLiveWin/x.txt"
         );
+    }
+
+    #[tokio::test]
+    async fn uses_only_the_requested_region_platform_cache() {
+        crate::net::install_tls_provider();
+        let temp = tempfile::tempdir().unwrap();
+        let data = br#"{"tree":[{"type":"blob","path":"LoL/EUW1/windows/lol-game-client/15.9.1.txt"}],"truncated":false}"#;
+        std::fs::write(tree_cache_path(temp.path(), "EUW1", "windows"), data).unwrap();
+        let entries = list_versions(&reqwest::Client::new(), temp.path(), "euw1", "WINDOWS", false).await.unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].patch, "15.9");
+        assert_ne!(tree_cache_path(temp.path(), "EUW1", "windows"), tree_cache_path(temp.path(), "NA1", "windows"));
+        assert!(list_versions(&reqwest::Client::new(), temp.path(), "../EUW1", "windows", false).await.is_err());
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn live_catalog_fetches_complete_scoped_tree() {
+        crate::net::install_tls_provider();
+        let temp = tempfile::tempdir().unwrap();
+        let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap();
+        let entries = list_versions(&client, temp.path(), "EUW1", "windows", true).await.unwrap();
+        assert!(entries.iter().any(|e| e.kind == "game" && e.patch == "15.9"));
+        assert!(entries.iter().any(|e| e.kind == "game" && e.patch == "15.12"));
+        let cached = list_versions(&client, temp.path(), "EUW1", "windows", false).await.unwrap();
+        assert_eq!(entries, cached);
+        eprintln!("Complete EUW1/windows catalog: {} versions", entries.len());
     }
 }

@@ -3,7 +3,7 @@ use std::io::Cursor;
 use ritoshark::rman::ChunkRange;
 use ritoshark::wad::{Wad, WadChunk};
 
-use crate::cdn::downloader::bundle_url;
+use futures_util::StreamExt;
 use flint_hash::error::{Error, Result};
 
 /// One inner file inside a WAD, from its TOC.
@@ -45,63 +45,39 @@ pub fn entries_from_wad(wad: &Wad) -> Vec<WadEntry> {
     wad.chunks.iter().map(WadEntry::from_chunk).collect()
 }
 
-/// In practice 1-3 chunks suffice; cap the prefix growth.
-const MAX_TOC_CHUNKS: usize = 8;
-
-/// Range-fetch the WAD's leading chunks and parse its inner-file listing, without
-/// downloading the whole file.
 pub async fn list_wad_entries_from_chunks(
     client: &reqwest::Client,
     chunks: &[ChunkRange],
 ) -> Result<WadListing> {
+    list_wad_with(chunks, |chunk| async move {
+        crate::cdn::downloader::fetch_chunk_decompressed(client, &chunk, "WAD TOC").await
+    }).await
+}
+
+async fn list_wad_with<F, Fut>(chunks: &[ChunkRange], mut fetch: F) -> Result<WadListing>
+where
+    F: FnMut(ChunkRange) -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<u8>>>,
+{
     if chunks.is_empty() {
         return Err(Error::Cdn("file has no chunks".to_string()));
     }
-    let mut prefix: Vec<u8> = Vec::new();
-    let mut last_err: Option<String> = None;
-    for chunk in chunks.iter().take(MAX_TOC_CHUNKS) {
-        let url = bundle_url(chunk.bundle_id);
-        let resp = client
-            .get(&url)
-            .header(
-                reqwest::header::RANGE,
-                format!(
-                    "bytes={}-{}",
-                    chunk.offset_in_bundle,
-                    chunk.offset_in_bundle + chunk.compressed_size - 1
-                ),
-            )
-            .send()
-            .await
-            .map_err(|e| Error::Cdn(format!("range fetch: {e}")))?;
-        if !resp.status().is_success() {
-            return Err(Error::Cdn(format!(
-                "range fetch failed: HTTP {}",
-                resp.status()
-            )));
-        }
-        let body = resp
-            .bytes()
-            .await
-            .map_err(|e| Error::Cdn(format!("range body: {e}")))?;
-        let decompressed = zstd::stream::decode_all(body.as_ref())
-            .map_err(|e| Error::Cdn(format!("zstd decode: {e}")))?;
-        prefix.extend_from_slice(&decompressed);
-        match Wad::from_reader(&mut Cursor::new(&prefix)) {
-            Ok(wad) => {
-                return Ok(WadListing {
-                    version: wad.version,
-                    entries: entries_from_wad(&wad),
-                    names: Default::default(),
-                })
-            }
-            Err(e) => last_err = Some(format!("{e:?}")),
+    let mut prefix = Vec::new();
+    for chunk in chunks {
+        prefix.extend_from_slice(&fetch(chunk.clone()).await?);
+        match Wad::from_reader_toc(&mut Cursor::new(&prefix)) {
+            Ok(wad) => return Ok(WadListing {
+                version: wad.version,
+                entries: entries_from_wad(&wad),
+                names: Default::default(),
+            }),
+            Err(ritoshark::wad::Error::Io(ritoshark::io::Error::Io(e)))
+                if e.kind() == std::io::ErrorKind::UnexpectedEof => {},
+            Err(ritoshark::wad::Error::Io(ritoshark::io::Error::UnexpectedEof { .. })) => {},
+            Err(e) => return Err(Error::Cdn(format!("invalid WAD TOC: {e}"))),
         }
     }
-    Err(Error::Cdn(format!(
-        "could not parse WAD TOC within {MAX_TOC_CHUNKS} chunks: {}",
-        last_err.unwrap_or_default()
-    )))
+    Err(Error::Cdn(format!("truncated WAD TOC after {} chunks ({} bytes)", chunks.len(), prefix.len())))
 }
 
 /// Whether a manifest file path looks like a WAD archive.
@@ -137,6 +113,9 @@ async fn fetch_entry_raw(
     data_offset: u32,
     compressed_size: u32,
 ) -> Result<Vec<u8>> {
+    if compressed_size == 0 {
+        return Ok(Vec::new());
+    }
     let (idxs, base) = chunks_covering(chunks, data_offset, compressed_size);
     if idxs.is_empty() {
         return Err(Error::Cdn(format!(
@@ -144,35 +123,11 @@ async fn fetch_entry_raw(
         )));
     }
     let mut wad_slice: Vec<u8> = Vec::new();
-    for &i in &idxs {
-        let chunk = &chunks[i];
-        let url = bundle_url(chunk.bundle_id);
-        let resp = client
-            .get(&url)
-            .header(
-                reqwest::header::RANGE,
-                format!(
-                    "bytes={}-{}",
-                    chunk.offset_in_bundle,
-                    chunk.offset_in_bundle + chunk.compressed_size - 1
-                ),
-            )
-            .send()
-            .await
-            .map_err(|e| Error::Cdn(format!("range fetch: {e}")))?;
-        if !resp.status().is_success() {
-            return Err(Error::Cdn(format!(
-                "range fetch failed: HTTP {}",
-                resp.status()
-            )));
-        }
-        let body = resp
-            .bytes()
-            .await
-            .map_err(|e| Error::Cdn(format!("range body: {e}")))?;
-        let dec = zstd::stream::decode_all(body.as_ref())
-            .map_err(|e| Error::Cdn(format!("zstd decode of wad chunk: {e}")))?;
-        wad_slice.extend_from_slice(&dec);
+    let mut pending = futures_util::stream::iter(idxs).map(|i| async move {
+        crate::cdn::downloader::fetch_chunk_decompressed(client, &chunks[i], "WAD entry").await
+    }).buffered(4);
+    while let Some(result) = pending.next().await {
+        wad_slice.extend_from_slice(&result?);
     }
     let start = (data_offset - base) as usize;
     let end = start + compressed_size as usize;
@@ -260,29 +215,49 @@ pub enum UnpackProgress {
     EntryError { name: String, error: String },
 }
 
-/// Unpack EVERY inner file of a CDN WAD into `out_dir`, resolving names via
-/// `names` (path_hash -> relative path; unresolved entries fall back to their
-/// hex hash). Each inner entry is fetched with per-chunk range requests (the
-/// only reliable path against Riot's CDN) and written to disk as it decodes, so
-/// memory stays flat. One entry's failure doesn't abort the rest.
-pub async fn unpack_wad_to_dir<F: Fn(UnpackProgress)>(
+pub async fn unpack_wad_to_dir<F: Fn(UnpackProgress) + Send + 'static>(
     client: &reqwest::Client,
-    chunks: &[ChunkRange],
+    file: &crate::cdn::downloader::FilePlan,
+    listing: WadListing,
+    out_dir: &std::path::Path,
+    report: F,
+) -> Result<(usize, usize)> {
+    let total = listing.entries.len();
+    report(UnpackProgress::Start { total });
+    report(UnpackProgress::Entry { done: 0, total, name: "Downloading WAD archive".to_string() });
+    tokio::fs::create_dir_all(out_dir).await
+        .map_err(|e| Error::Cdn(format!("create extraction directory: {e}")))?;
+    let temp = tempfile::tempdir_in(out_dir)
+        .map_err(|e| Error::Cdn(format!("create WAD temporary directory: {e}")))?;
+    let path = temp.path().join("archive.wad");
+    crate::cdn::downloader::stream_file_to_path(client, file, &path, |_| {}).await?;
+    let out_dir = out_dir.to_path_buf();
+    tokio::task::spawn_blocking(move || {
+        let _temp = temp;
+        unpack_local_wad(&path, &listing.names, &out_dir, report)
+    }).await.map_err(|e| Error::Cdn(format!("WAD extraction task failed: {e}")))?
+}
+
+fn unpack_local_wad<F: Fn(UnpackProgress)>(
+    path: &std::path::Path,
     names: &std::collections::HashMap<u64, String>,
     out_dir: &std::path::Path,
     report: F,
 ) -> Result<(usize, usize)> {
-    let mut listing = list_wad_entries_from_chunks(client, chunks).await?;
-    listing.names = names.clone();
-
-    let total = listing.entries.len();
-    report(UnpackProgress::Start { total });
+    let file = std::fs::File::open(path).map_err(|e| Error::Cdn(format!("open downloaded WAD: {e}")))?;
+    let mut reader = std::io::BufReader::new(file);
+    let wad = Wad::from_reader_toc(&mut reader).map_err(|e| Error::Cdn(format!("read downloaded WAD: {e}")))?;
+    let toc = wad.chunks.iter().find(|c| names.get(&c.path_hash).is_some_and(|n| n.ends_with(".subchunktoc")))
+        .map(|c| wad.chunk_data_from(&mut reader, c)
+            .map_err(|e| Error::Cdn(format!("read subchunktoc: {e}")))
+            .and_then(|bytes| parse_subchunk_toc(&bytes)))
+        .transpose()?.unwrap_or_default();
+    let total = wad.chunks.len();
     let mut ok = 0usize;
     let mut errors = 0usize;
 
-    for (i, entry) in listing.entries.iter().enumerate() {
-        let rel = listing
-            .names
+    for (i, entry) in wad.chunks.iter().enumerate() {
+        let rel = names
             .get(&entry.path_hash)
             .cloned()
             .unwrap_or_else(|| format!("{:016x}", entry.path_hash));
@@ -291,7 +266,7 @@ pub async fn unpack_wad_to_dir<F: Fn(UnpackProgress)>(
             total,
             name: rel.clone(),
         });
-        match decode_inner_entry(client, chunks, &listing, entry).await {
+        match wad.chunk_data_from_with_toc(&mut reader, entry, &toc) {
             Ok(bytes) => {
                 let mut dest = out_dir.join(rel.replace('\\', "/"));
                 // Windows rejects paths over ~260 chars (os error 123). League's
@@ -305,17 +280,16 @@ pub async fn unpack_wad_to_dir<F: Fn(UnpackProgress)>(
                         .unwrap_or_default();
                     dest = out_dir.join(format!("{:016x}{ext}", entry.path_hash));
                 }
-                let write = async {
+                let write = (|| {
                     if let Some(parent) = dest.parent() {
-                        tokio::fs::create_dir_all(parent).await.map_err(|e| {
+                        std::fs::create_dir_all(parent).map_err(|e| {
                             Error::Cdn(format!("create dir {}: {e}", parent.display()))
                         })?;
                     }
-                    tokio::fs::write(&dest, &bytes)
-                        .await
+                    std::fs::write(&dest, &bytes)
                         .map_err(|e| Error::Cdn(format!("write {}: {e}", dest.display())))
-                };
-                match write.await {
+                })();
+                match write {
                     Ok(_) => {
                         ok += 1;
                         tracing::debug!("[cdn] unpacked {} ({} bytes)", rel, bytes.len());
@@ -368,5 +342,82 @@ mod tests {
         assert!(is_wad_path("Foo/Bar.wad.client"));
         assert!(is_wad_path("x.WAD"));
         assert!(!is_wad_path("x.bin"));
+    }
+
+    #[tokio::test]
+    async fn reads_a_toc_spanning_more_than_eight_manifest_chunks() {
+        let mut builder = ritoshark::wad::WadBuilder::new();
+        for hash in 0..64 { builder.add_chunk_hash(hash); }
+        let mut bytes = Vec::new();
+        builder.build_to_writer(&mut bytes, |_, out| {
+            out.write_all(b"asset").map_err(ritoshark::io::Error::from)?;
+            Ok(())
+        }).unwrap();
+        let chunks: Vec<_> = bytes.chunks(128).enumerate().map(|(i, b)| ChunkRange {
+            chunk_id: i as u64, ..cr(b.len() as u32)
+        }).collect();
+        let calls = std::cell::Cell::new(0);
+        let listing = list_wad_with(&chunks, |c| {
+            calls.set(calls.get() + 1);
+            let start = c.chunk_id as usize * 128;
+            std::future::ready(Ok(bytes[start..start + c.uncompressed_size as usize].to_vec()))
+        }).await.unwrap();
+        assert_eq!(listing.entries.len(), 64);
+        assert!(calls.get() > 8);
+        assert_eq!(calls.get(), (272usize + 64 * 32).div_ceil(128));
+    }
+
+    #[tokio::test]
+    async fn invalid_tocs_stop_immediately_and_short_tocs_report_truncation() {
+        let calls = std::cell::Cell::new(0);
+        let err = list_wad_with(&vec![cr(4); 12], |_| {
+            calls.set(calls.get() + 1);
+            std::future::ready(Ok(b"nope".to_vec()))
+        }).await.unwrap_err();
+        assert!(err.to_string().contains("invalid WAD TOC"));
+        assert_eq!(calls.get(), 1);
+        let err = list_wad_with(&[cr(4)], |_| std::future::ready(Ok(vec![b'R', b'W', 3, 4])))
+            .await.unwrap_err();
+        assert!(err.to_string().contains("truncated WAD TOC"));
+    }
+
+    #[tokio::test]
+    #[ignore]
+    async fn live_reported_map_manifest_lists_and_reads_target_asset() {
+        crate::net::install_tls_provider();
+        let client = reqwest::Client::builder().timeout(std::time::Duration::from_secs(60)).build().unwrap();
+        let url = std::env::var("FLINT_CDN_TEST_MANIFEST").expect("FLINT_CDN_TEST_MANIFEST");
+        let body = client.get(url).send().await.unwrap().error_for_status().unwrap().bytes().await.unwrap();
+        let manifest = crate::cdn::manifest::Manifest::from_bytes(&body).unwrap();
+        let index = manifest.paths().iter().position(|(p, _)| p.to_ascii_lowercase().ends_with("/map11.wad.client")).unwrap();
+        let chunks = manifest.file_chunks(index);
+        let listing = list_wad_entries_from_chunks(&client, &chunks).await.unwrap();
+        let target = "assets/sounds/wwise2016/sfx/shared/mus_map11_seasonal_25s2_bloom_audio.bnk";
+        let hash = ritoshark::hash::xxh64(target);
+        let entry = listing.entries.iter().find(|e| e.path_hash == hash).unwrap();
+        let bytes = decode_inner_entry(&client, &chunks, &listing, entry).await.unwrap();
+        assert_eq!(bytes.len(), entry.uncompressed_size as usize);
+        assert!(bytes.starts_with(b"BKHD"));
+        eprintln!("Map11: {} entries, target BNK {} bytes", listing.entries.len(), bytes.len());
+    }
+
+    #[test]
+    fn whole_wad_extraction_reads_shared_chunks_from_disk() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("map.wad");
+        let mut file = std::fs::File::create(&path).unwrap();
+        let mut builder = ritoshark::wad::WadBuilder::new();
+        builder.add_chunk_hash(1);
+        builder.add_chunk_hash(2);
+        builder.build_to_writer(&mut file, |_, out| {
+            out.write_all(b"shared contents").map_err(ritoshark::io::Error::from)?;
+            Ok(())
+        }).unwrap();
+        drop(file);
+        let names = [(1, "assets/a.bin".to_string()), (2, "assets/b.bin".to_string())].into_iter().collect();
+        let dest = temp.path().join("extracted");
+        assert_eq!(unpack_local_wad(&path, &names, &dest, |_| {}).unwrap(), (2, 0));
+        assert_eq!(std::fs::read(dest.join("assets/a.bin")).unwrap(), b"shared contents");
+        assert_eq!(std::fs::read(dest.join("assets/b.bin")).unwrap(), b"shared contents");
     }
 }

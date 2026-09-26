@@ -315,6 +315,10 @@
 
 .cdn-bx-toolbar__label { font-weight: 650; }
 
+.cdn-bx-search {
+  padding: 8px 12px;
+}
+
 .cdn-bx-toolbar__files { color: var(--text-muted); font-size: 12px; font-family: var(--font-mono); }
 
 .cdn-langtoggle {

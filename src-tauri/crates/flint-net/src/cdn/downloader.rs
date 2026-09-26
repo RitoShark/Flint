@@ -1,10 +1,14 @@
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use futures_util::{stream, StreamExt};
 
 use ritoshark::rman::{ChunkHashType, ChunkRange};
 
 use flint_hash::error::{Error, Result};
+
+const BUNDLE_BASE: &str = "https://lol.dyn.riotcdn.net/channels/public/bundles";
+const DOWNLOAD_CONCURRENCY: usize = 8;
 
 /// A run of consecutive chunks in the same bundle, fetchable in one HTTP range request.
 #[derive(Clone, Debug)]
@@ -45,7 +49,7 @@ pub fn group_chunks(chunks: &[ChunkRange]) -> Vec<BundleGroup> {
 
 /// The CDN URL for a bundle (uppercase, zero-padded 16-hex id).
 pub fn bundle_url(bundle_id: u64) -> String {
-    format!("https://lol.dyn.riotcdn.net/channels/public/bundles/{bundle_id:016X}.bundle")
+    format!("{BUNDLE_BASE}/{bundle_id:016X}.bundle")
 }
 
 /// The HTTP `Range` header value covering a whole group.
@@ -104,19 +108,32 @@ pub fn plan_download(manifest: &crate::cdn::manifest::Manifest, indices: &[usize
 /// Fetch ONE manifest chunk in its own small HTTP range request and return its
 /// decompressed bytes. Riot's CDN truncates large multi-MB range spans (returns
 /// a short body), so each chunk must be fetched individually — never grouped.
-async fn fetch_chunk_decompressed(
+pub(crate) async fn fetch_chunk_decompressed(
     client: &reqwest::Client,
     chunk: &ChunkRange,
     label: &str,
 ) -> Result<Vec<u8>> {
     let url = bundle_url(chunk.bundle_id);
+    fetch_chunk_from_url(client, chunk, label, &url).await
+}
+
+async fn fetch_chunk_from_url(
+    client: &reqwest::Client,
+    chunk: &ChunkRange,
+    label: &str,
+    url: &str,
+) -> Result<Vec<u8>> {
+    let end = chunk.offset_in_bundle.checked_add(chunk.compressed_size)
+        .and_then(|n| n.checked_sub(1))
+        .filter(|_| chunk.compressed_size > 0)
+        .ok_or_else(|| Error::Cdn("invalid manifest chunk range".to_string()))?;
     let range = format!(
         "bytes={}-{}",
         chunk.offset_in_bundle,
-        chunk.offset_in_bundle + chunk.compressed_size - 1
+        end
     );
     let resp = client
-        .get(&url)
+        .get(url)
         .header(reqwest::header::RANGE, range)
         .send()
         .await
@@ -124,12 +141,17 @@ async fn fetch_chunk_decompressed(
             tracing::warn!("[cdn] {label}: range request to {url} errored: {e}");
             Error::Cdn(format!("range request: {e}"))
         })?;
-    if !resp.status().is_success() {
+    if resp.status() != reqwest::StatusCode::PARTIAL_CONTENT {
         tracing::warn!("[cdn] {label}: range request to {url} failed: HTTP {}", resp.status());
         return Err(Error::Cdn(format!(
             "range request to {url} failed: HTTP {}",
             resp.status()
         )));
+    }
+    let expected_range = format!("bytes {}-{end}/", chunk.offset_in_bundle);
+    if !resp.headers().get(reqwest::header::CONTENT_RANGE)
+        .and_then(|v| v.to_str().ok()).is_some_and(|v| v.starts_with(&expected_range)) {
+        return Err(Error::Cdn(format!("incorrect Content-Range for chunk {:#x}", chunk.chunk_id)));
     }
     let body = resp.bytes().await.map_err(|e| {
         tracing::warn!("[cdn] {label}: reading range body from {url} errored: {e}");
@@ -162,12 +184,19 @@ async fn fetch_chunk_decompressed(
     Ok(decompressed)
 }
 
-/// Stream one file's decoded bytes to an explicit destination path, fetching
-/// each chunk individually and writing it as it arrives so memory stays flat.
 async fn stream_file_to_dest(
     client: &reqwest::Client,
     file: &FilePlan,
     dest: &Path,
+) -> Result<u64> {
+    stream_file_from(client, file, dest, BUNDLE_BASE).await
+}
+
+async fn stream_file_from(
+    client: &reqwest::Client,
+    file: &FilePlan,
+    dest: &Path,
+    bundle_base: &str,
 ) -> Result<u64> {
     use tokio::io::AsyncWriteExt;
 
@@ -176,20 +205,22 @@ async fn stream_file_to_dest(
         file.rel_path, file.chunks.len(), file.size, dest.display()
     );
 
-    if let Some(parent) = dest.parent() {
+    if let Some(parent) = dest.parent().filter(|p| !p.as_os_str().is_empty()) {
         tokio::fs::create_dir_all(parent).await.map_err(|e| {
             tracing::warn!("[cdn] {}: create dir {} failed: {e}", file.rel_path, parent.display());
             Error::Cdn(format!("create dir {}: {e}", parent.display()))
         })?;
     }
-    let mut out = tokio::fs::File::create(dest).await.map_err(|e| {
-        tracing::warn!("[cdn] {}: create {} failed: {e}", file.rel_path, dest.display());
-        Error::Cdn(format!("create {}: {e}", dest.display()))
-    })?;
+    let parent = dest.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+    let temp = tempfile::NamedTempFile::new_in(parent)
+        .map_err(|e| Error::Cdn(format!("create download temporary file: {e}")))?;
+    let mut out = tokio::fs::File::from_std(temp.reopen()
+        .map_err(|e| Error::Cdn(format!("open download temporary file: {e}")))?);
 
     let mut written: u64 = 0;
-    for chunk in &file.chunks {
-        let decompressed = fetch_chunk_decompressed(client, chunk, &file.rel_path).await?;
+    let mut pending = stream::iter(file.chunks.clone()).map(|chunk| async move {
+        let url = format!("{bundle_base}/{:016X}.bundle", chunk.bundle_id);
+        let decompressed = fetch_chunk_from_url(client, &chunk, &file.rel_path, &url).await?;
         if let Some(ht) = file.hash_type {
             let ok = ritoshark::rman::validate_chunk(&decompressed, chunk.chunk_id, ht)
                 .map_err(|e| {
@@ -204,13 +235,22 @@ async fn stream_file_to_dest(
                 )));
             }
         }
+        Ok::<_, Error>(decompressed)
+    }).buffered(DOWNLOAD_CONCURRENCY);
+    while let Some(result) = pending.next().await {
+        let decompressed = result?;
         out.write_all(&decompressed).await.map_err(|e| {
             tracing::warn!("[cdn] {}: write to {} failed: {e}", file.rel_path, dest.display());
             Error::Cdn(format!("write {}: {e}", dest.display()))
         })?;
         written += decompressed.len() as u64;
     }
+    if written != file.size {
+        return Err(Error::Cdn(format!("file size mismatch: downloaded {written} bytes, expected {}", file.size)));
+    }
     out.flush().await.map_err(|e| Error::Cdn(format!("flush {}: {e}", dest.display())))?;
+    drop(out);
+    temp.persist(dest).map_err(|e| Error::Cdn(format!("save {}: {e}", dest.display())))?;
     tracing::info!("[cdn] downloaded {} ({} bytes) -> {}", file.rel_path, written, dest.display());
     Ok(written)
 }
@@ -349,5 +389,89 @@ mod tests {
             chunks: vec![cr(1, 5, 10), cr(1, 15, 10)],
         };
         assert_eq!(range_header(&g), "bytes=5-24");
+    }
+
+    fn serve_chunks(count: usize, status: &'static str) -> (String, FilePlan, Arc<std::sync::atomic::AtomicUsize>, std::thread::JoinHandle<()>) {
+        use std::io::{Read, Write};
+        use std::sync::atomic::AtomicUsize;
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let payloads: Vec<_> = (0..count).map(|i| zstd::stream::encode_all(&[i as u8; 32][..], 1).unwrap()).collect();
+        let file = FilePlan {
+            rel_path: "test.wad".to_string(), size: count as u64 * 32, hash_type: None,
+            chunks: payloads.iter().enumerate().map(|(i, p)| ChunkRange {
+                bundle_id: 1, chunk_id: i as u64, offset_in_bundle: i as u32 * 100,
+                compressed_size: p.len() as u32, uncompressed_size: 32,
+            }).collect(),
+        };
+        let peak = Arc::new(AtomicUsize::new(0));
+        let max = peak.clone();
+        let handle = std::thread::spawn(move || {
+            let active = Arc::new(AtomicUsize::new(0));
+            let payloads = Arc::new(payloads);
+            let mut workers = Vec::new();
+            for stream in listener.incoming().take(count) {
+                let mut stream = stream.unwrap();
+                let active = active.clone();
+                let max = max.clone();
+                let payloads = payloads.clone();
+                workers.push(std::thread::spawn(move || {
+                    stream.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+                    let mut request = Vec::new();
+                    let mut byte = [0];
+                    while !request.ends_with(b"\r\n\r\n") {
+                        stream.read_exact(&mut byte).unwrap();
+                        request.push(byte[0]);
+                    }
+                    let request = String::from_utf8(request).unwrap().to_ascii_lowercase();
+                    let range = request.lines().find_map(|l| l.strip_prefix("range: bytes=")).unwrap();
+                    let offset: usize = range.split('-').next().unwrap().parse().unwrap();
+                    let i = offset / 100;
+                    max.fetch_max(active.fetch_add(1, Ordering::SeqCst) + 1, Ordering::SeqCst);
+                    std::thread::sleep(std::time::Duration::from_millis(if i == 0 { 120 } else { 20 }));
+                    let body = &payloads[i];
+                    let header = format!("HTTP/1.1 {status}\r\nContent-Length: {}\r\nContent-Range: bytes {range}/100000\r\nConnection: close\r\n\r\n", body.len());
+                    stream.write_all(header.as_bytes()).unwrap();
+                    stream.write_all(body).unwrap();
+                    active.fetch_sub(1, Ordering::SeqCst);
+                }));
+            }
+            for worker in workers { worker.join().unwrap(); }
+        });
+        (url, file, peak, handle)
+    }
+
+    #[tokio::test]
+    async fn downloads_concurrently_but_writes_in_order() {
+        crate::net::install_tls_provider();
+        let (url, file, peak, server) = serve_chunks(12, "206 Partial Content");
+        let temp = tempfile::tempdir().unwrap();
+        let dest = temp.path().join("archive.wad");
+        let start = std::time::Instant::now();
+        assert_eq!(stream_file_from(&reqwest::Client::new(), &file, &dest, &url).await.unwrap(), file.size);
+        server.join().unwrap();
+        let expected: Vec<_> = (0..12u8).flat_map(|i| [i; 32]).collect();
+        assert_eq!(std::fs::read(dest).unwrap(), expected);
+        let peak = peak.load(Ordering::SeqCst);
+        assert!(peak > 1 && peak <= DOWNLOAD_CONCURRENCY);
+        eprintln!("12 delayed chunks downloaded in {:?}; peak requests: {peak}", start.elapsed());
+    }
+
+    #[tokio::test]
+    async fn failed_downloads_preserve_existing_destination() {
+        crate::net::install_tls_provider();
+        for failure in ["range", "size", "hash"] {
+            let status = if failure == "range" { "200 OK" } else { "206 Partial Content" };
+            let (url, mut file, _, server) = serve_chunks(1, status);
+            if failure == "size" { file.size += 1; }
+            if failure == "hash" { file.hash_type = Some(ChunkHashType::Sha256); }
+            let temp = tempfile::tempdir().unwrap();
+            let dest = temp.path().join("archive.wad");
+            std::fs::write(&dest, b"original").unwrap();
+            assert!(stream_file_from(&reqwest::Client::new(), &file, &dest, &url).await.is_err());
+            server.join().unwrap();
+            assert_eq!(std::fs::read(&dest).unwrap(), b"original");
+            assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 1);
+        }
     }
 }

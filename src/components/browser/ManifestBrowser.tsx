@@ -1,5 +1,5 @@
 import { Button } from '../ui/Button';
-import React, { useMemo, useState } from 'react';
+import React, { useDeferredValue, useMemo, useState } from 'react';
 import { open, save } from '../../lib/api/dialog';
 import { listen } from '@tauri-apps/api/event';
 import * as api from '../../lib/api';
@@ -13,6 +13,7 @@ import { ChunkPreview } from './wad-explorer/ChunkPreview';
 import { cdnWadSource } from './wad-explorer/dataSource';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import { toPosix } from '../../lib/pathIdentity';
+import { searchManifestTree } from './manifestSearch';
 
 function isWadPath(path: string): boolean {
     const p = path.toLowerCase();
@@ -107,6 +108,10 @@ export const ManifestBrowser: React.FC = () => {
     const [checkedInner, setCheckedInner] = useState<Map<string, { wadFileIndex: number; chunk: WadChunk }>>(new Map());
 
     const sessionId = session?.sessionId ?? '';
+    const searchQuery = useDeferredValue(session?.searchQuery ?? '');
+    const searching = searchQuery.trim().length > 0;
+    const search = useMemo(() => session ? searchManifestTree(session.tree, session.wadInner, searchQuery) : null,
+        [session?.tree, session?.wadInner, searchQuery]);
 
     const dataSource = useMemo(
         () => (selectedInner ? cdnWadSource(sessionId, selectedInner.wadFileIndex) : null),
@@ -129,12 +134,12 @@ export const ManifestBrowser: React.FC = () => {
     const innerTrees = useMemo(() => {
         if (!session) return new Map<number, VFSNode[]>();
         const result = new Map<number, VFSNode[]>();
-        for (const [fileIndex, chunks] of session.wadInner) {
+        for (const [fileIndex, chunks] of search?.wadChunks ?? session.wadInner) {
             const wadChunks: WadChunk[] = chunks.map((c) => ({ hash: c.hash, path: c.path, size: c.size }));
             result.set(fileIndex, buildVFSSubtree(wadChunks, `cdn:${fileIndex}`));
         }
         return result;
-    }, [session?.wadInner]);
+    }, [session?.wadInner, search]);
 
     if (!session) {
         return <div className="wad-explorer__empty" style={{ padding: 24 }}>No manifest loaded.</div>;
@@ -214,10 +219,18 @@ export const ManifestBrowser: React.FC = () => {
         if (!session.wadInner.has(node.file_index)) {
             try {
                 const inner = await api.cdnListWad(session.sessionId, node.file_index);
-                const map = new Map(session.wadInner);
+                const current = useCdnManifestStore.getState().sessions[session.sessionId];
+                if (!current) return;
+                const map = new Map(current.wadInner);
                 map.set(node.file_index, inner);
                 update(session.sessionId, { wadInner: map });
             } catch (e) {
+                const current = useCdnManifestStore.getState().sessions[session.sessionId];
+                if (current) {
+                    const expandedWads = new Set(current.expandedWads);
+                    expandedWads.delete(node.path);
+                    update(session.sessionId, { expandedWads });
+                }
                 showToast('error', `Failed to list WAD: ${(e as Error).message ?? e}`);
             }
         }
@@ -484,7 +497,7 @@ export const ManifestBrowser: React.FC = () => {
         const pad = 8 + depth * 14;
         if (node.type === 'folder') {
             const folder = node as VFSFolder;
-            const isExpanded = expandedInnerFolders.has(folder.key);
+            const isExpanded = searching || expandedInnerFolders.has(folder.key);
             return (
                 <div key={folder.key}>
                     <div className="wad-explorer__row" style={{ paddingLeft: pad, display: 'flex', alignItems: 'center', gap: 8, height: 24, cursor: 'pointer' }}
@@ -521,11 +534,12 @@ export const ManifestBrowser: React.FC = () => {
 
     // Render the manifest tree with cascade checkboxes + per-node Extract.
     const renderNode = (node: CdnTreeNode, depth: number): React.ReactNode => {
+        if (search && !search.paths.has(node.path)) return null;
         if (isHiddenLangWad(node)) return null;
         const pad = 8 + depth * 14;
 
         if (node.is_dir) {
-            const expanded = session.expandedFolders.has(node.path);
+            const expanded = searching || session.expandedFolders.has(node.path);
             return (
                 <div key={node.path}>
                     <div className="wad-explorer__row" style={{ paddingLeft: pad, display: 'flex', alignItems: 'center', gap: 8, height: 26, cursor: 'pointer' }}
@@ -545,7 +559,7 @@ export const ManifestBrowser: React.FC = () => {
 
         const isWad = isWadPath(node.path);
         const locale = isWad ? node.name.match(/\.([a-z]{2}_[A-Z]{2})\.wad(?:\.client)?$/)?.[1] : null;
-        const wadExpanded = isWad && session.expandedWads.has(node.path);
+        const wadExpanded = isWad && (session.expandedWads.has(node.path) || (searching && session.wadInner.has(node.file_index!)));
         const inner = node.file_index != null ? session.wadInner.get(node.file_index) : undefined;
         const vfsTree = node.file_index != null ? innerTrees.get(node.file_index) : undefined;
         return (
@@ -588,7 +602,17 @@ export const ManifestBrowser: React.FC = () => {
                     </div>
                 </div>
 
+                <div className="cdn-bx-search">
+                    <input
+                        className="form-input"
+                        aria-label="Search manifest files and loaded WAD contents"
+                        placeholder="Search files and loaded WAD contents..."
+                        value={session.searchQuery}
+                        onChange={e => update(session.sessionId, { searchQuery: e.target.value })}
+                    />
+                </div>
                 <div style={{ flex: 1, overflowY: 'auto', background: 'var(--bg-primary)' }}>
+                    {searching && search?.paths.size === 0 && <div className="cdn-bx-search" role="status">No matching files. Open a WAD to include its contents.</div>}
                     {session.tree.children.map((c) => renderNode(c, 0))}
                 </div>
 

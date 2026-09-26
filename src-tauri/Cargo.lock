@@ -1695,11 +1695,13 @@ name = "flint-net"
 version = "0.1.0"
 dependencies = [
  "flint-hash",
+ "futures-util",
  "reqwest",
  "ritoshark",
  "rustls",
  "serde",
  "serde_json",
+ "tempfile",
  "tokio",
  "tracing",
  "zstd 0.12.4",

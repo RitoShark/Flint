@@ -406,11 +406,11 @@ pub async fn cdn_extract_wad_unpacked(
     let chunks = manifest.file_chunks(file_index);
 
     // Resolve inner names once so unpacked files land at their real paths.
-    let listing = wad_browse::list_wad_entries_from_chunks(&http_client(), &chunks)
+    let mut listing = wad_browse::list_wad_entries_from_chunks(&http_client(), &chunks)
         .await
         .map_err(|e| e.to_string())?;
     let hashes: Vec<u64> = listing.entries.iter().map(|e| e.path_hash).collect();
-    let names = resolve_inner_names(&hashes, &lmdb);
+    listing.names = resolve_inner_names(&hashes, &lmdb);
 
     // Unpack into a subfolder named after the WAD file (e.g. Aatrox.wad.client).
     let wad_rel = manifest
@@ -420,13 +420,15 @@ pub async fn cdn_extract_wad_unpacked(
         .unwrap_or_default();
     let wad_name = wad_rel.rsplit(['/', '\\']).next().unwrap_or("wad").to_string();
     let dest_root = std::path::PathBuf::from(&out_dir).join(&wad_name);
+    let plan = downloader::plan_download(&manifest, &[file_index]);
+    let file = plan.files.first().ok_or("file index not in manifest")?;
 
     let (ok, errors) = wad_browse::unpack_wad_to_dir(
         &http_client(),
-        &chunks,
-        &names,
+        file,
+        listing,
         &dest_root,
-        |p| {
+        move |p| {
             let _ = app.emit("cdn-unpack-progress", CdnUnpackDto::from(p));
         },
     )
