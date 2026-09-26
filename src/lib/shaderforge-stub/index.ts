@@ -9,6 +9,10 @@
  */
 export const shaderForgeAvailable = false;
 
+export async function loadShaderMaterials(): Promise<null> {
+    return null;
+}
+
 export type ShaderForgeApi = never;
 
 export async function loadShaderForge(): Promise<ShaderForgeApi | null> {

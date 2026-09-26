@@ -38,7 +38,7 @@ import { AnimationPlayer, resetSkeletonToRestPose } from '../../lib/babylon/anim
 import { SubmeshVisibilityTimeline, fnv1a32Lower } from '../../lib/babylon/submeshVisibility';
 import type { AnimationClipInfo, SkinForm, SubmeshVisEvent } from '../../lib/api/mesh';
 import { modelPreviewSessionStore, type ModelPreviewSession } from '../../lib/stores/modelPreviewSessionStore';
-import { shaderForgeAvailable, loadShaderForge } from '@shaderforge';
+import { shaderForgeAvailable, loadShaderMaterials } from '@shaderforge';
 import { shaderPreviewAvailable } from '../../lib/shaderPreview';
 import { readModelIdleEffects, type IdleEffectData } from '../../lib/api/idleEffects';
 import { playIdleEffects } from '../../lib/vfx/native/player';
@@ -349,7 +349,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     }, []);
     const gameShadersRef = useRef(gameShaders);
     gameShadersRef.current = gameShaders;
-    const prevMaterialsRef = useRef<Map<Mesh, { mat: Material | null; alphaIndex: number }>>(new Map());
+    const prevMaterialsRef = useRef<Map<Mesh, { mat: Material | null; alphaIndex: number; sideOrientation: number }>>(new Map());
     const passTokenRef = useRef(0);
 
     const applyGameShadersPass = async () => {
@@ -374,23 +374,21 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             }
             // Loose view of the pass: the precise DTO types live in the
             // private module and aren't visible to stub builds.
-            const sf = (await loadShaderForge()) as null | {
-                translatedMaterial: {
-                    applyTranslatedPass: (
-                        scene: unknown,
-                        res: unknown,
-                        targets: unknown,
-                        opts?: unknown,
-                    ) => Promise<unknown>;
-                };
+            const sf = (await loadShaderMaterials()) as null | {
+                applyTranslatedPass: (
+                    scene: unknown,
+                    res: unknown,
+                    targets: unknown,
+                    opts?: unknown,
+                ) => Promise<unknown>;
             };
             if (!sf || aborted()) return;
             for (const m of passMeshes) {
                 if (!prevMaterialsRef.current.has(m)) {
-                    prevMaterialsRef.current.set(m, { mat: m.material, alphaIndex: m.alphaIndex });
+                    prevMaterialsRef.current.set(m, { mat: m.material, alphaIndex: m.alphaIndex, sideOrientation: m.sideOrientation });
                 }
             }
-            await sf.translatedMaterial.applyTranslatedPass(
+            await sf.applyTranslatedPass(
                 s,
                 res,
                 passMeshes.map(m => ({ submeshName: m.name, mesh: m })),
@@ -409,8 +407,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             if (cur && cur !== prev.mat) {
                 m.material = prev.mat;
                 m.alphaIndex = prev.alphaIndex;
-                // Textures stay owned by the module's caches / the scene —
-                // only the ShaderMaterial wrapper goes.
+                m.sideOrientation = prev.sideOrientation;
                 cur.dispose();
             }
         }
@@ -797,6 +794,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     useEffect(() => {
         if (!scene || !camera || !meshData) return;
 
+        removeGameShadersPass();
         safeDisposeSkeletonViewer(skeletonViewerRef);
 
         activeMeshesRef.current.forEach(m => {
@@ -1005,6 +1003,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         // Game-shaders pass (private module): opt-in via the Display
         // popup toggle — translation work only happens when it's on.
         // The snapshot map from any previous model is stale now.
+        passTokenRef.current++;
         prevMaterialsRef.current.clear();
         if (isSkn && shaderForgeAvailable && gameShadersRef.current) {
             void applyGameShadersPass();
@@ -1054,6 +1053,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         }
 
         return () => {
+            removeGameShadersPass();
             textureCache.forEach(tex => tex.dispose());
         };
     }, [scene, camera, meshData, skeletonData]);
