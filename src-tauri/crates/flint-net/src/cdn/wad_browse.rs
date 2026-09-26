@@ -1,3 +1,4 @@
+use super::cancellation::DownloadCancellation;
 use std::io::Cursor;
 
 use ritoshark::rman::ChunkRange;
@@ -221,6 +222,7 @@ pub async fn unpack_wad_to_dir<F: Fn(UnpackProgress) + Send + 'static>(
     listing: WadListing,
     out_dir: &std::path::Path,
     report: F,
+    cancel: DownloadCancellation,
 ) -> Result<(usize, usize)> {
     let total = listing.entries.len();
     report(UnpackProgress::Start { total });
@@ -230,11 +232,11 @@ pub async fn unpack_wad_to_dir<F: Fn(UnpackProgress) + Send + 'static>(
     let temp = tempfile::tempdir_in(out_dir)
         .map_err(|e| Error::Cdn(format!("create WAD temporary directory: {e}")))?;
     let path = temp.path().join("archive.wad");
-    crate::cdn::downloader::stream_file_to_path(client, file, &path, |_| {}).await?;
+    cancel.run(crate::cdn::downloader::stream_file_to_path(client, file, &path, |_| {})).await??;
     let out_dir = out_dir.to_path_buf();
     tokio::task::spawn_blocking(move || {
         let _temp = temp;
-        unpack_local_wad(&path, &listing.names, &out_dir, report)
+        unpack_local_wad(&path, &listing.names, &out_dir, report, cancel)
     }).await.map_err(|e| Error::Cdn(format!("WAD extraction task failed: {e}")))?
 }
 
@@ -243,6 +245,7 @@ fn unpack_local_wad<F: Fn(UnpackProgress)>(
     names: &std::collections::HashMap<u64, String>,
     out_dir: &std::path::Path,
     report: F,
+    cancel: DownloadCancellation,
 ) -> Result<(usize, usize)> {
     let file = std::fs::File::open(path).map_err(|e| Error::Cdn(format!("open downloaded WAD: {e}")))?;
     let mut reader = std::io::BufReader::new(file);
@@ -257,6 +260,7 @@ fn unpack_local_wad<F: Fn(UnpackProgress)>(
     let mut errors = 0usize;
 
     for (i, entry) in wad.chunks.iter().enumerate() {
+        cancel.check()?;
         let rel = names
             .get(&entry.path_hash)
             .cloned()
@@ -268,6 +272,7 @@ fn unpack_local_wad<F: Fn(UnpackProgress)>(
         });
         match wad.chunk_data_from_with_toc(&mut reader, entry, &toc) {
             Ok(bytes) => {
+                cancel.check()?;
                 let mut dest = out_dir.join(rel.replace('\\', "/"));
                 // Windows rejects paths over ~260 chars (os error 123). League's
                 // "multi_skins" concatenated bins have enormous names — fall back
@@ -308,6 +313,7 @@ fn unpack_local_wad<F: Fn(UnpackProgress)>(
             }
         }
     }
+    cancel.check()?;
     tracing::info!("[cdn] unpack done: {}/{} ok, {} error(s)", ok, total, errors);
     Ok((ok, errors))
 }
@@ -416,8 +422,18 @@ mod tests {
         drop(file);
         let names = [(1, "assets/a.bin".to_string()), (2, "assets/b.bin".to_string())].into_iter().collect();
         let dest = temp.path().join("extracted");
-        assert_eq!(unpack_local_wad(&path, &names, &dest, |_| {}).unwrap(), (2, 0));
+        assert_eq!(unpack_local_wad(&path, &names, &dest, |_| {}, DownloadCancellation::default()).unwrap(), (2, 0));
         assert_eq!(std::fs::read(dest.join("assets/a.bin")).unwrap(), b"shared contents");
         assert_eq!(std::fs::read(dest.join("assets/b.bin")).unwrap(), b"shared contents");
+        let cancelled_dest = temp.path().join("cancelled");
+        let cancel = DownloadCancellation::default();
+        let trigger = cancel.clone();
+        let result = unpack_local_wad(&path, &names, &cancelled_dest, |p| {
+            if matches!(p, UnpackProgress::Entry { done: 1, .. }) {
+                trigger.cancel();
+            }
+        }, cancel);
+        assert!(result.unwrap_err().to_string().contains("Download aborted"));
+        assert_eq!(std::fs::read_dir(cancelled_dest.join("assets")).unwrap().count(), 1);
     }
 }

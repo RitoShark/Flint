@@ -1,5 +1,5 @@
 import { Button } from '../ui/Button';
-import React, { useDeferredValue, useMemo, useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { open, save } from '../../lib/api/dialog';
 import { listen } from '@tauri-apps/api/event';
 import * as api from '../../lib/api';
@@ -95,6 +95,16 @@ export const ManifestBrowser: React.FC = () => {
 
     const [selectedInner, setSelectedInner] = useState<{ wadFileIndex: number; chunk: WadChunk } | null>(null);
     const [extracting, setExtracting] = useState(false);
+    const [aborting, setAborting] = useState(false);
+    const activeDownload = useRef<{ id: string | null; aborted: boolean } | null>(null);
+
+    useEffect(() => () => {
+        const active = activeDownload.current;
+        if (active) {
+            active.aborted = true;
+            if (active.id) void api.cdnAbortDownload(active.id).catch(console.error);
+        }
+    }, []);
     const [extractStatus, setExtractStatus] = useState<string | null>(null);
     const [extractPct, setExtractPct] = useState<number | null>(null);
     const [hideLanguages, setHideLanguages] = useState(true);
@@ -236,12 +246,69 @@ export const ManifestBrowser: React.FC = () => {
         }
     };
 
+    const beginDownload = async (): Promise<string | null> => {
+        if (activeDownload.current) return null;
+        const active = { id: null as string | null, aborted: false };
+        activeDownload.current = active;
+        setExtracting(true);
+        setAborting(false);
+        try {
+            active.id = await api.cdnBeginDownload();
+            if (active.aborted) {
+                await api.cdnAbortDownload(active.id);
+                throw new Error('Download aborted');
+            }
+            return active.id;
+        } catch (e) {
+            showToast(active.aborted ? 'info' : 'error', active.aborted ? 'Download aborted' : String(e));
+            activeDownload.current = null;
+            setExtracting(false);
+            setAborting(false);
+            return null;
+        }
+    };
+
+    const checkDownload = () => {
+        if (activeDownload.current?.aborted) throw new Error('Download aborted');
+    };
+
+    const finishDownload = () => {
+        const id = activeDownload.current?.id;
+        activeDownload.current = null;
+        if (id) void api.cdnAbortDownload(id).catch(console.error);
+        setAborting(false);
+        setExtracting(false);
+        setExtractStatus(null);
+        setExtractPct(null);
+    };
+
+    const abortDownload = async () => {
+        const active = activeDownload.current;
+        if (!active || active.aborted) return;
+        active.aborted = true;
+        setAborting(true);
+        try {
+            if (active.id) await api.cdnAbortDownload(active.id);
+        } catch (e) {
+            if (activeDownload.current !== active) return;
+            active.aborted = false;
+            setAborting(false);
+            showToast('error', `Could not abort download: ${String(e)}`);
+        }
+    };
+
+    const downloadError = (label: string, e: unknown) => {
+        const aborted = activeDownload.current?.aborted || String(e).includes('Download aborted');
+        showToast(aborted ? 'info' : 'error', aborted ? 'Download aborted' : `${label}: ${(e as Error).message ?? e}`);
+    };
+
     /** Run an extract for a set of manifest file indices with live progress. */
     const runExtract = async (indices: number[]) => {
         if (indices.length === 0) return;
         const dest = await open({ title: 'Choose Extraction Folder', directory: true });
         if (!dest) return;
-        setExtracting(true);
+        const downloadId = await beginDownload();
+        if (!downloadId) return;
         setExtractPct(0);
         setExtractStatus(`Preparing ${indices.length} file(s)…`);
         let done = 0;
@@ -249,32 +316,35 @@ export const ManifestBrowser: React.FC = () => {
         // Keep the real per-file failure reasons so the toast can show WHY, not
         // just a count (the backend also logs each step at info/warn level).
         const failures: string[] = [];
-        const unlisten = await listen<CdnProgress>('cdn-extract-progress', (ev) => {
-            const p = ev.payload;
-            if (p.type === 'fileStart') {
-                const name = p.path.split('/').pop() ?? p.path;
-                setExtractStatus(`${done}/${total} · ${name}`);
-                console.info(`[cdn-extract] start ${p.path} (${p.size} bytes)`);
-            } else if (p.type === 'fileDone') {
-                done++;
-                setExtractPct(Math.round((done / total) * 100));
-                console.info(`[cdn-extract] done ${p.path} (verified=${p.verified})`);
-            } else if (p.type === 'fileError') {
-                done++;
-                setExtractPct(Math.round((done / total) * 100));
-                const name = p.path.split('/').pop() ?? p.path;
-                failures.push(`${name}: ${p.error}`);
-                console.error(`[cdn-extract] FAILED ${p.path}: ${p.error}`);
-            } else if (p.type === 'note') {
-                console.info(`[cdn-extract] ${p.message}`);
-            } else if (p.type === 'allDone') {
-                setExtractPct(100);
-                const files = p.files ?? 0, errCount = p.errors ?? 0;
-                setExtractStatus(`Done: ${files - errCount}/${files} files`);
-            }
-        });
+        let unlisten = () => {};
         try {
-            const res = await api.cdnExtract(session.sessionId, indices, dest as string);
+            unlisten = await listen<CdnProgress>('cdn-extract-progress', (ev) => {
+                const p = ev.payload;
+                if (p.type === 'fileStart') {
+                    const name = p.path.split('/').pop() ?? p.path;
+                    setExtractStatus(`${done}/${total} · ${name}`);
+                    console.info(`[cdn-extract] start ${p.path} (${p.size} bytes)`);
+                } else if (p.type === 'fileDone') {
+                    done++;
+                    setExtractPct(Math.round((done / total) * 100));
+                    console.info(`[cdn-extract] done ${p.path} (verified=${p.verified})`);
+                } else if (p.type === 'fileError') {
+                    done++;
+                    setExtractPct(Math.round((done / total) * 100));
+                    const name = p.path.split('/').pop() ?? p.path;
+                    failures.push(`${name}: ${p.error}`);
+                    console.error(`[cdn-extract] FAILED ${p.path}: ${p.error}`);
+                } else if (p.type === 'note') {
+                    console.info(`[cdn-extract] ${p.message}`);
+                } else if (p.type === 'allDone') {
+                    setExtractPct(100);
+                    const files = p.files ?? 0, errCount = p.errors ?? 0;
+                    setExtractStatus(`Done: ${files - errCount}/${files} files`);
+                }
+            });
+            checkDownload();
+            const res = await api.cdnExtract(session.sessionId, indices, dest as string, downloadId);
+            checkDownload();
             const files = res.files ?? 0, errCount = res.errors ?? 0;
             if (errCount > 0) {
                 // Show the first real reason inline; the rest are in the log.
@@ -285,12 +355,10 @@ export const ManifestBrowser: React.FC = () => {
                 showToast('success', `Extracted ${files} file${files === 1 ? '' : 's'}`);
             }
         } catch (e) {
-            showToast('error', `Extraction failed: ${(e as Error).message ?? e}`);
+            downloadError('Extraction failed', e);
         } finally {
             unlisten();
-            setExtracting(false);
-            setExtractStatus(null);
-            setExtractPct(null);
+            finishDownload();
         }
     };
 
@@ -305,24 +373,28 @@ export const ManifestBrowser: React.FC = () => {
         if (node.file_index == null) return;
         const dest = await open({ title: 'Choose Extraction Folder', directory: true });
         if (!dest) return;
-        setExtracting(true);
+        const downloadId = await beginDownload();
+        if (!downloadId) return;
         setExtractPct(0);
         setExtractStatus(`Unpacking ${node.name}…`);
         const failures: string[] = [];
-        const unlisten = await listen<CdnUnpackProgress>('cdn-unpack-progress', (ev) => {
-            const p = ev.payload;
-            if (p.type === 'start') {
-                setExtractStatus(`Unpacking ${node.name} — 0/${p.total}`);
-            } else if (p.type === 'entry') {
-                setExtractPct(p.total ? Math.round((p.done / p.total) * 100) : null);
-                setExtractStatus(`${p.done}/${p.total} · ${p.name.split('/').pop() ?? p.name}`);
-            } else if (p.type === 'entryError') {
-                failures.push(`${p.name.split('/').pop() ?? p.name}: ${p.error}`);
-                console.error(`[cdn-unpack] FAILED ${p.name}: ${p.error}`);
-            }
-        });
+        let unlisten = () => {};
         try {
-            const res = await api.cdnExtractWadUnpacked(session.sessionId, node.file_index, dest as string);
+            unlisten = await listen<CdnUnpackProgress>('cdn-unpack-progress', (ev) => {
+                const p = ev.payload;
+                if (p.type === 'start') {
+                    setExtractStatus(`Unpacking ${node.name} — 0/${p.total}`);
+                } else if (p.type === 'entry') {
+                    setExtractPct(p.total ? Math.round((p.done / p.total) * 100) : null);
+                    setExtractStatus(`${p.done}/${p.total} · ${p.name.split('/').pop() ?? p.name}`);
+                } else if (p.type === 'entryError') {
+                    failures.push(`${p.name.split('/').pop() ?? p.name}: ${p.error}`);
+                    console.error(`[cdn-unpack] FAILED ${p.name}: ${p.error}`);
+                }
+            });
+            checkDownload();
+            const res = await api.cdnExtractWadUnpacked(session.sessionId, node.file_index, dest as string, downloadId);
+            checkDownload();
             const files = res.files ?? 0, errCount = res.errors ?? 0;
             if (errCount > 0) {
                 const reason = failures[0] ?? 'see log for details';
@@ -331,12 +403,10 @@ export const ManifestBrowser: React.FC = () => {
                 showToast('success', `Unpacked ${files} file${files === 1 ? '' : 's'} from ${node.name}`);
             }
         } catch (e) {
-            showToast('error', `Unpack failed: ${(e as Error).message ?? e}`);
+            downloadError('Unpack failed', e);
         } finally {
             unlisten();
-            setExtracting(false);
-            setExtractStatus(null);
-            setExtractPct(null);
+            finishDownload();
         }
     };
 
@@ -345,23 +415,24 @@ export const ManifestBrowser: React.FC = () => {
         if (node.file_index == null) return;
         const dest = await save({ title: 'Download WAD as', defaultPath: node.name });
         if (!dest) return;
-        setExtracting(true);
+        const downloadId = await beginDownload();
+        if (!downloadId) return;
         setExtractPct(null);
         setExtractStatus(`Downloading ${node.name}…`);
         try {
-            const bytes = await api.cdnDownloadWadRaw(session.sessionId, node.file_index, dest as string);
+            const bytes = await api.cdnDownloadWadRaw(session.sessionId, node.file_index, dest as string, downloadId);
+            checkDownload();
             showToast('success', `Downloaded ${node.name} (${formatBytes(bytes)})`);
         } catch (e) {
-            showToast('error', `Download failed: ${(e as Error).message ?? e}`);
+            downloadError('Download failed', e);
         } finally {
-            setExtracting(false);
-            setExtractStatus(null);
-            setExtractPct(null);
+            finishDownload();
         }
     };
 
     /** Right-click a WAD row: unpack all files, or download the raw .wad.client. */
     const wadContextMenu = (node: CdnTreeNode, x: number, y: number) => {
+        if (activeDownload.current) return;
         openContextMenu(x, y, [
             { label: 'Extract WAD (unpack files)', icon: getIcon('export'), onClick: () => unpackWad(node) },
             { label: 'Download WAD (raw file)', icon: getIcon('download') ?? getIcon('save'), onClick: () => downloadWadRaw(node) },
@@ -373,6 +444,7 @@ export const ManifestBrowser: React.FC = () => {
     const extractInnerBatch = async (
         entries: { wadFileIndex: number; chunk: WadChunk }[],
         destDir: string,
+        downloadId: string,
     ): Promise<{ ok: number; errors: number }> => {
         let ok = 0, errors = 0, done = 0;
         const total = entries.length;
@@ -390,15 +462,18 @@ export const ManifestBrowser: React.FC = () => {
             return candidate;
         };
         for (const { wadFileIndex, chunk } of entries) {
+            checkDownload();
             const rel = toPosix(chunk.path ?? chunk.hash);
             const name = rel.split('/').pop() ?? chunk.hash;
             const outRel = flatExtract ? flatName(name) : rel;
             setExtractStatus(`${done}/${total} · ${name}`);
             try {
-                const buf = await api.cdnReadInner(session.sessionId, wadFileIndex, chunk.hash);
+                const buf = await api.cdnReadInner(session.sessionId, wadFileIndex, chunk.hash, downloadId);
+                checkDownload();
                 await api.saveFileBytes(`${destDir}/${outRel}`, new Uint8Array(buf));
                 ok++;
             } catch {
+                checkDownload();
                 errors++;
             }
             done++;
@@ -416,40 +491,45 @@ export const ManifestBrowser: React.FC = () => {
         const dest = await open({ title: 'Choose Extraction Folder', directory: true });
         if (!dest) return;
         const destDir = dest as string;
-        setExtracting(true);
+        const downloadId = await beginDownload();
+        if (!downloadId) return;
         setExtractPct(0);
         setExtractStatus('Preparing…');
         let manifestOk = 0, manifestErr = 0, innerOk = 0, innerErr = 0;
         // Capture the real per-WAD failure reasons (whole-WAD extract is where
         // "download a wad fully" fails); the backend logs each step too.
         const failures: string[] = [];
-        const unlisten = await listen<CdnProgress>('cdn-extract-progress', (ev) => {
-            const p = ev.payload;
-            if (p.type === 'fileStart') {
-                console.info(`[cdn-extract] start ${p.path} (${p.size} bytes)`);
-            } else if (p.type === 'fileDone') {
-                console.info(`[cdn-extract] done ${p.path} (verified=${p.verified})`);
-            } else if (p.type === 'fileError') {
-                const name = p.path.split('/').pop() ?? p.path;
-                failures.push(`${name}: ${p.error}`);
-                console.error(`[cdn-extract] FAILED ${p.path}: ${p.error}`);
-            } else if (p.type === 'note') {
-                console.info(`[cdn-extract] ${p.message}`);
-            }
-        });
+        let unlisten = () => {};
         try {
+            unlisten = await listen<CdnProgress>('cdn-extract-progress', (ev) => {
+                const p = ev.payload;
+                if (p.type === 'fileStart') {
+                    console.info(`[cdn-extract] start ${p.path} (${p.size} bytes)`);
+                } else if (p.type === 'fileDone') {
+                    console.info(`[cdn-extract] done ${p.path} (verified=${p.verified})`);
+                } else if (p.type === 'fileError') {
+                    const name = p.path.split('/').pop() ?? p.path;
+                    failures.push(`${name}: ${p.error}`);
+                    console.error(`[cdn-extract] FAILED ${p.path}: ${p.error}`);
+                } else if (p.type === 'note') {
+                    console.info(`[cdn-extract] ${p.message}`);
+                }
+            });
+            checkDownload();
             if (indices.length > 0) {
                 setExtractStatus(`Extracting ${indices.length} WAD file(s)…`);
-                const res = await api.cdnExtract(session.sessionId, indices, destDir);
+                const res = await api.cdnExtract(session.sessionId, indices, destDir, downloadId);
+                checkDownload();
                 // Coerce: a missing/undefined field must not make the toast "NaN".
                 const files = res.files ?? 0, errCount = res.errors ?? 0;
                 manifestOk = files - errCount;
                 manifestErr = errCount;
             }
             if (inner.length > 0) {
-                const r = await extractInnerBatch(inner, destDir);
+                const r = await extractInnerBatch(inner, destDir, downloadId);
                 innerOk = r.ok; innerErr = r.errors;
             }
+            checkDownload();
             const ok = manifestOk + innerOk, errs = manifestErr + innerErr;
             setExtractPct(100);
             if (errs > 0) {
@@ -460,12 +540,10 @@ export const ManifestBrowser: React.FC = () => {
                 showToast('success', `Extracted ${ok} file(s)`);
             }
         } catch (e) {
-            showToast('error', `Extraction failed: ${(e as Error).message ?? e}`);
+            downloadError('Extraction failed', e);
         } finally {
             unlisten();
-            setExtracting(false);
-            setExtractStatus(null);
-            setExtractPct(null);
+            finishDownload();
         }
     };
 
@@ -476,19 +554,20 @@ export const ManifestBrowser: React.FC = () => {
         const fullName = (chunk.path ?? chunk.hash).split('/').pop() ?? chunk.hash;
         const dest = await save({ title: 'Save file as', defaultPath: fullName });
         if (!dest) return;
-        setExtracting(true);
+        const downloadId = await beginDownload();
+        if (!downloadId) return;
         setExtractPct(null);
         setExtractStatus(`Downloading ${fullName}…`);
         try {
-            const buf = await api.cdnReadInner(session.sessionId, wadFileIndex, chunk.hash);
+            const buf = await api.cdnReadInner(session.sessionId, wadFileIndex, chunk.hash, downloadId);
+            checkDownload();
             await api.saveFileBytes(dest as string, new Uint8Array(buf));
+            checkDownload();
             showToast('success', `Extracted ${fullName}`);
         } catch (e) {
-            showToast('error', `Extraction failed: ${(e as Error).message ?? e}`);
+            downloadError('Extraction failed', e);
         } finally {
-            setExtracting(false);
-            setExtractStatus(null);
-            setExtractPct(null);
+            finishDownload();
         }
     };
 
@@ -573,7 +652,7 @@ export const ManifestBrowser: React.FC = () => {
                     <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{node.name}</span>
                     {locale && <span className="cdn-langtag">{locale}</span>}
                     <span style={{ opacity: 0.5, fontSize: 11 }}>{formatBytes(node.size)}</span>
-                    <Button size="sm" title={isWad ? 'Unpack this WAD’s files into a folder (right-click for raw download)' : 'Extract'}
+                    <Button size="sm" disabled={extracting} title={isWad ? 'Unpack this WAD’s files into a folder (right-click for raw download)' : 'Extract'}
                         onClick={(e) => { e.stopPropagation(); isWad ? unpackWad(node) : extractNode(node); }}>Extract</Button>
                 </div>
                 {wadExpanded && node.file_index != null && (
@@ -622,8 +701,11 @@ export const ManifestBrowser: React.FC = () => {
                             <div className={`cdn-bx-progress${extractPct == null ? ' cdn-bx-progress--indet' : ''}`}>
                                 <div className="cdn-bx-progress__fill" style={extractPct != null ? { width: `${extractPct}%` } : undefined} />
                             </div>
-                            <span className="cdn-bx-status">{extractStatus}</span>
+                            <span className="cdn-bx-status">{aborting ? 'Aborting…' : extractStatus}</span>
                             <span className="cdn-actionbar__grow" />
+                            <Button size="sm" disabled={aborting} onClick={abortDownload}>
+                                {aborting ? 'Aborting…' : 'Abort'}
+                            </Button>
                         </>
                     ) : (
                         <>

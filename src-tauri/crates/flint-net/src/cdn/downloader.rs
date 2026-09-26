@@ -1,6 +1,5 @@
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use super::cancellation::DownloadCancellation;
 use futures_util::{stream, StreamExt};
 
 use ritoshark::rman::{ChunkHashType, ChunkRange};
@@ -299,8 +298,8 @@ pub async fn download_plan<F: Fn(DownloadProgress)>(
     plan: DownloadPlan,
     out_dir: PathBuf,
     report: F,
-    cancel: Arc<AtomicBool>,
-) -> usize {
+    cancel: &DownloadCancellation,
+) -> Result<usize> {
     let mut errors = 0usize;
     let total = plan.files.len();
     tracing::info!(
@@ -311,15 +310,12 @@ pub async fn download_plan<F: Fn(DownloadProgress)>(
     );
 
     for file in &plan.files {
-        if cancel.load(Ordering::Relaxed) {
-            report(DownloadProgress::Note("cancelled".to_string()));
-            break;
-        }
+        cancel.check()?;
         report(DownloadProgress::FileStart {
             path: file.rel_path.clone(),
             size: file.size,
         });
-        match fetch_and_write(client, file, &out_dir).await {
+        match cancel.run(fetch_and_write(client, file, &out_dir)).await? {
             Ok(_) => {
                 let verified = file.hash_type.is_some();
                 if !verified {
@@ -347,11 +343,12 @@ pub async fn download_plan<F: Fn(DownloadProgress)>(
         files: total,
         errors,
     });
-    errors
+    Ok(errors)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, atomic::Ordering};
     use super::*;
     use ritoshark::rman::ChunkRange;
 
@@ -455,6 +452,50 @@ mod tests {
         let peak = peak.load(Ordering::SeqCst);
         assert!(peak > 1 && peak <= DOWNLOAD_CONCURRENCY);
         eprintln!("12 delayed chunks downloaded in {:?}; peak requests: {peak}", start.elapsed());
+    }
+
+    #[tokio::test]
+    async fn abort_stalled_download_cleans_temp_and_preserves_destination() {
+        use std::io::Read;
+        crate::net::install_tls_provider();
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let (started, ready) = tokio::sync::oneshot::channel();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+            let mut request = Vec::new();
+            let mut byte = [0];
+            while !request.ends_with(b"\r\n\r\n") {
+                stream.read_exact(&mut byte).unwrap();
+                request.push(byte[0]);
+            }
+            started.send(()).unwrap();
+            assert_eq!(stream.read(&mut byte).unwrap(), 0);
+        });
+        let file = FilePlan {
+            rel_path: "test.wad".into(), size: 32, hash_type: None,
+            chunks: vec![ChunkRange {
+                bundle_id: 1, chunk_id: 0, offset_in_bundle: 0,
+                compressed_size: 32, uncompressed_size: 32,
+            }],
+        };
+        let temp = tempfile::tempdir().unwrap();
+        let dest = temp.path().join("archive.wad");
+        std::fs::write(&dest, b"original").unwrap();
+        let cancel = DownloadCancellation::default();
+        let worker = cancel.clone();
+        let output = dest.clone();
+        let task = tokio::spawn(async move {
+            worker.run(stream_file_from(&reqwest::Client::new(), &file, &output, &url)).await
+        });
+        tokio::time::timeout(std::time::Duration::from_secs(5), ready).await.unwrap().unwrap();
+        cancel.cancel();
+        let result = tokio::time::timeout(std::time::Duration::from_secs(2), task).await.unwrap().unwrap();
+        assert!(result.unwrap_err().to_string().contains("Download aborted"));
+        server.join().unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), b"original");
+        assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 1);
     }
 
     #[tokio::test]

@@ -7,3 +7,4 @@ pub mod catalog;
 pub mod manifest;
 pub mod wad_browse;
 pub mod downloader;
+pub mod cancellation;

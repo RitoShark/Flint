@@ -84,11 +84,12 @@ export function cdnListWad(sessionId: string, fileIndex: number): Promise<CdnWad
 }
 
 /** Raw inner-entry bytes via range fetch. Scalars travel in headers (raw-bytes IPC). */
-export function cdnReadInner(sessionId: string, wadFileIndex: number, hash: string): Promise<ArrayBuffer> {
+export function cdnReadInner(sessionId: string, wadFileIndex: number, hash: string, downloadId?: string): Promise<ArrayBuffer> {
     return invokeRaw('cdn_read_inner', new Uint8Array(0), {
         'session-id': sessionId,
         'wad-file-index': String(wadFileIndex),
         'path-hash': hash,
+        ...(downloadId ? { 'download-id': downloadId } : {}),
     });
 }
 
@@ -96,14 +97,14 @@ export function cdnReadInner(sessionId: string, wadFileIndex: number, hash: stri
  * Extract selected manifest file indices to `outDir`. Progress is emitted by the
  * backend as `cdn-extract-progress` events; subscribe via listenCdnExtractProgress.
  */
-export function cdnExtract(sessionId: string, fileIndices: number[], outDir: string): Promise<CdnExtractSummary> {
-    return invokeCommand('cdn_extract', { sessionId, fileIndices, outDir });
+export function cdnExtract(sessionId: string, fileIndices: number[], outDir: string, downloadId?: string): Promise<CdnExtractSummary> {
+    return invokeCommand('cdn_extract', { sessionId, fileIndices, outDir, downloadId });
 }
 
 /** Unpack every inner file of one WAD into `outDir/<wadName>/…`. Progress is
  *  emitted as `cdn-unpack-progress` events. */
-export function cdnExtractWadUnpacked(sessionId: string, fileIndex: number, outDir: string): Promise<CdnExtractSummary> {
-    return invokeCommand('cdn_extract_wad_unpacked', { sessionId, fileIndex, outDir });
+export function cdnExtractWadUnpacked(sessionId: string, fileIndex: number, outDir: string, downloadId?: string): Promise<CdnExtractSummary> {
+    return invokeCommand('cdn_extract_wad_unpacked', { sessionId, fileIndex, outDir, downloadId });
 }
 
 /** Progress event for `cdnExtractWadUnpacked` (channel `cdn-unpack-progress`). */
@@ -114,10 +115,18 @@ export type CdnUnpackProgress =
 
 /** Download the raw `.wad.client` file itself for one WAD to `outPath`. Returns
  *  the number of bytes written. */
-export function cdnDownloadWadRaw(sessionId: string, fileIndex: number, outPath: string): Promise<number> {
-    return invokeCommand('cdn_download_wad_raw', { sessionId, fileIndex, outPath });
+export function cdnDownloadWadRaw(sessionId: string, fileIndex: number, outPath: string, downloadId?: string): Promise<number> {
+    return invokeCommand('cdn_download_wad_raw', { sessionId, fileIndex, outPath, downloadId });
 }
 
 export function cdnCloseSession(sessionId: string): Promise<boolean> {
     return invokeCommand('cdn_close_session', { sessionId });
+}
+
+export function cdnBeginDownload(): Promise<string> {
+    return invokeCommand('cdn_begin_download');
+}
+
+export function cdnAbortDownload(downloadId: string): Promise<void> {
+    return invokeCommand('cdn_abort_download', { downloadId });
 }

@@ -3,8 +3,8 @@
 //! and hold parsed manifests in `CdnSessionState`, one per open manifest tab.
 
 use std::collections::HashMap;
-use std::sync::atomic::AtomicBool;
-use std::sync::Arc;
+use std::sync::{Mutex, OnceLock};
+use flint_core::cdn::cancellation::DownloadCancellation;
 
 use serde::Serialize;
 use tauri::{Emitter, State};
@@ -13,6 +13,36 @@ use flint_core::cdn::{catalog, downloader, manifest::TreeNode, sieve, wad_browse
 use flint_core::hash::resolve_hashes_lmdb_bulk;
 
 use crate::state::{CdnSessionState, LmdbCacheState};
+
+static DOWNLOADS: OnceLock<Mutex<HashMap<String, DownloadCancellation>>> = OnceLock::new();
+
+fn downloads() -> &'static Mutex<HashMap<String, DownloadCancellation>> {
+    DOWNLOADS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn download_cancellation(id: Option<&str>) -> Result<DownloadCancellation, String> {
+    match id {
+        Some(id) => downloads().lock().map_err(|e| e.to_string())?
+            .get(id).cloned().ok_or_else(|| "Download aborted".to_string()),
+        None => Ok(DownloadCancellation::default()),
+    }
+}
+
+#[tauri::command]
+pub fn cdn_begin_download() -> Result<String, String> {
+    let id = uuid::Uuid::new_v4().to_string();
+    downloads().lock().map_err(|e| e.to_string())?
+        .insert(id.clone(), DownloadCancellation::default());
+    Ok(id)
+}
+
+#[tauri::command]
+pub fn cdn_abort_download(download_id: String) -> Result<(), String> {
+    if let Some(cancel) = downloads().lock().map_err(|e| e.to_string())?.remove(&download_id) {
+        cancel.cancel();
+    }
+    Ok(())
+}
 
 fn http_client() -> reqwest::Client {
     reqwest::Client::new()
@@ -271,6 +301,7 @@ pub async fn cdn_read_inner(
     lmdb: State<'_, LmdbCacheState>,
 ) -> Result<tauri::ipc::Response, String> {
     let h = request.headers();
+    let cancel = download_cancellation(h.get("download-id").and_then(|v| v.to_str().ok()))?;
     let session_id = h
         .get("session-id")
         .and_then(|v| v.to_str().ok())
@@ -292,8 +323,8 @@ pub async fn cdn_read_inner(
 
     let manifest = cdn.get(&session_id).ok_or("cdn session not found")?;
     let chunks = manifest.file_chunks(file_index);
-    let mut listing = wad_browse::list_wad_entries_from_chunks(&http_client(), &chunks)
-        .await
+    let mut listing = cancel.run(wad_browse::list_wad_entries_from_chunks(&http_client(), &chunks))
+        .await.map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())?;
     let hashes: Vec<u64> = listing.entries.iter().map(|e| e.path_hash).collect();
     listing.names = resolve_inner_names(&hashes, &lmdb);
@@ -304,8 +335,8 @@ pub async fn cdn_read_inner(
         .find(|e| e.path_hash == path_hash)
         .ok_or("inner entry not found")?
         .clone();
-    let bytes = wad_browse::decode_inner_entry(&http_client(), &chunks, &listing, &entry)
-        .await
+    let bytes = cancel.run(wad_browse::decode_inner_entry(&http_client(), &chunks, &listing, &entry))
+        .await.map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())?;
     Ok(tauri::ipc::Response::new(bytes))
 }
@@ -345,14 +376,15 @@ pub struct ExtractSummary {
 pub async fn cdn_extract(
     app: tauri::AppHandle,
     session_id: String,
+    download_id: Option<String>,
     file_indices: Vec<usize>,
     out_dir: String,
     cdn: State<'_, CdnSessionState>,
 ) -> Result<ExtractSummary, String> {
+    let cancel = download_cancellation(download_id.as_deref())?;
     let manifest = cdn.get(&session_id).ok_or("cdn session not found")?;
     let plan = downloader::plan_download(&manifest, &file_indices);
     let total = plan.files.len();
-    let cancel = Arc::new(AtomicBool::new(false));
 
     let errors = downloader::download_plan(
         &http_client(),
@@ -361,9 +393,9 @@ pub async fn cdn_extract(
         |p| {
             let _ = app.emit("cdn-extract-progress", CdnProgressDto::from(p));
         },
-        cancel,
+        &cancel,
     )
-    .await;
+    .await.map_err(|e| e.to_string())?;
 
     Ok(ExtractSummary {
         files: total,
@@ -397,17 +429,19 @@ impl From<wad_browse::UnpackProgress> for CdnUnpackDto {
 pub async fn cdn_extract_wad_unpacked(
     app: tauri::AppHandle,
     session_id: String,
+    download_id: Option<String>,
     file_index: usize,
     out_dir: String,
     cdn: State<'_, CdnSessionState>,
     lmdb: State<'_, LmdbCacheState>,
 ) -> Result<ExtractSummary, String> {
+    let cancel = download_cancellation(download_id.as_deref())?;
     let manifest = cdn.get(&session_id).ok_or("cdn session not found")?;
     let chunks = manifest.file_chunks(file_index);
 
     // Resolve inner names once so unpacked files land at their real paths.
-    let mut listing = wad_browse::list_wad_entries_from_chunks(&http_client(), &chunks)
-        .await
+    let mut listing = cancel.run(wad_browse::list_wad_entries_from_chunks(&http_client(), &chunks))
+        .await.map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())?;
     let hashes: Vec<u64> = listing.entries.iter().map(|e| e.path_hash).collect();
     listing.names = resolve_inner_names(&hashes, &lmdb);
@@ -431,6 +465,7 @@ pub async fn cdn_extract_wad_unpacked(
         move |p| {
             let _ = app.emit("cdn-unpack-progress", CdnUnpackDto::from(p));
         },
+        cancel,
     )
     .await
     .map_err(|e| e.to_string())?;
@@ -449,23 +484,25 @@ pub async fn cdn_extract_wad_unpacked(
 pub async fn cdn_download_wad_raw(
     app: tauri::AppHandle,
     session_id: String,
+    download_id: Option<String>,
     file_index: usize,
     out_path: String,
     cdn: State<'_, CdnSessionState>,
 ) -> Result<u64, String> {
+    let cancel = download_cancellation(download_id.as_deref())?;
     let manifest = cdn.get(&session_id).ok_or("cdn session not found")?;
     let plan = downloader::plan_download(&manifest, &[file_index]);
     let file = plan.files.first().ok_or("file index not in manifest")?.clone();
 
-    let written = downloader::stream_file_to_path(
+    let written = cancel.run(downloader::stream_file_to_path(
         &http_client(),
         &file,
         std::path::Path::new(&out_path),
         |p| {
             let _ = app.emit("cdn-extract-progress", CdnProgressDto::from(p));
         },
-    )
-    .await
+    ))
+    .await.map_err(|e| e.to_string())?
     .map_err(|e| e.to_string())?;
     Ok(written)
 }

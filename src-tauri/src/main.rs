@@ -429,6 +429,8 @@ fn main() {
             commands::cdn::cdn_load_manifest_by_path,
             commands::cdn::cdn_list_wad,
             commands::cdn::cdn_read_inner,
+            commands::cdn::cdn_begin_download,
+            commands::cdn::cdn_abort_download,
             commands::cdn::cdn_extract,
             commands::cdn::cdn_extract_wad_unpacked,
             commands::cdn::cdn_download_wad_raw,
