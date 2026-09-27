@@ -342,6 +342,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         }
     });
     const [shaderReady, setShaderReady] = useState(false);
+    const [shaderStatus, setShaderStatus] = useState('');
     useEffect(() => {
         let active = true;
         void shaderPreviewAvailable().then(ready => { if (active) setShaderReady(ready); });
@@ -359,6 +360,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
         const token = ++passTokenRef.current;
         const aborted = () =>
             s.isDisposed || token !== passTokenRef.current || !gameShadersRef.current;
+        setShaderStatus('Loading materials…');
         try {
             if (!await shaderPreviewAvailable() || aborted()) return;
             const res = await api.readSknGenericMaterials(filePath);
@@ -366,6 +368,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                 (res as { materials?: unknown[] } | null)?.materials?.length ?? 0;
             console.info(`[shaderforge] materials resolved: ${matCount}`);
             if (matCount === 0) {
+                if (!aborted()) setShaderStatus('No static shader materials found');
                 console.warn(
                     '[shaderforge] no materials resolved for', filePath,
                     '- skin BIN not found from this path; preview keeps the PBR look',
@@ -380,7 +383,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                     res: unknown,
                     targets: unknown,
                     opts?: unknown,
-                ) => Promise<unknown>;
+                ) => Promise<Set<number>>;
             };
             if (!sf || aborted()) return;
             for (const m of passMeshes) {
@@ -388,13 +391,17 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                     prevMaterialsRef.current.set(m, { mat: m.material, alphaIndex: m.alphaIndex, sideOrientation: m.sideOrientation });
                 }
             }
-            await sf.applyTranslatedPass(
+            const applied = await sf.applyTranslatedPass(
                 s,
                 res,
                 passMeshes.map(m => ({ submeshName: m.name, mesh: m })),
                 { cacheHint: filePath, shouldAbort: aborted },
             );
+            if (!aborted()) setShaderStatus(applied.size > 0
+                ? `Applied to ${applied.size} material${applied.size === 1 ? '' : 's'}`
+                : 'No shader materials could be applied');
         } catch (e) {
+            if (!aborted()) setShaderStatus(`Shaders unavailable: ${e instanceof Error ? e.message : String(e)}`);
             console.warn('[shaderforge] translated pass skipped:', e);
         }
     };
@@ -1677,7 +1684,7 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
                     {shaderReady && meshType === 'skinned' && (
                         <MpToggleRow
                             label="Game shaders"
-                            desc="Game-accurate materials (slower)"
+                            desc={gameShaders && shaderStatus ? shaderStatus : 'Render static materials with game shaders'}
                             checked={gameShaders}
                             onChange={setGameShaders}
                         />
