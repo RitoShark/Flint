@@ -5,10 +5,11 @@ import type { EmitterModel, SystemModel } from '../model/model';
 import { readVfxSystem } from '../parsing/readVfxSystem';
 import { constant } from '../parsing/properties';
 import { identityInto } from '../utils/basis';
+import { QUAD_TYPE } from '../model/enums';
 import { Rng } from '../utils/Rng';
 import { copyEmitterStates, createEmitterStates, stepEmitters, type SystemStep } from './integrate';
 import { copyRows, createPool, writeRows } from './pool';
-import { appearance } from './particleRead';
+import { appearance, frameOf, standingFrameInto } from './particleRead';
 import { createDriver } from './driver';
 import type { EmissionSurfaces } from './emissionSurface';
 import { createLineage } from './children';
@@ -26,6 +27,59 @@ const basis = identityInto(new Float32Array(9));
 const step = (now: number, dt = 0.1): SystemStep => ({now, dt, origin: [0, 0, 0], moved: [0, 0, 0], yaw: basis, world: basis, stopped: false});
 
 describe('native particle simulation', () => {
+    const systemTurn = [1, 0, 0, 0, 0, 0, 1, 0, 0, -1, 0, 0, 900, 800, 700, 1];
+    const boneTurn = Float32Array.of(0, 0, 1, 0, 1, 0, -1, 0, 0);
+
+    it.each([QUAD_TYPE.mesh, QUAD_TYPE.arbitraryQuad, QUAD_TYPE.cameraQuad])('keeps attachment positions independent of system orientation for primitive %i', quadType => {
+        const model = {...system({quadType, singleParticle: true, rate: constant(1),
+            birthVelocity: constant(0, 0, 0), emitterPosition: constant(0, 10, 0)}), transform: systemTurn};
+        const driver = createDriver(1);
+        driver.swap(model);
+        driver.steer({motion: {kind: 'bone', anchor: {
+            originAt: () => [100, 20, 30], basisInto: (_time, output) => { output.set(boneTurn); return output; },
+        }, target: null}, life: 'once', height: 0});
+        driver.seek(0.1);
+        expect(driver.origin).toEqual([100, 20, 30]);
+        expect([...driver.pool.position.slice(0, 3)]).toEqual(quadType === QUAD_TYPE.cameraQuad ? [100, 30, 30] : [110, 20, 30]);
+        const expected = copyRows(driver.pool);
+        driver.seek(0.05);
+        driver.seek(0.1);
+        expect(copyRows(driver.pool)).toEqual(expected);
+    });
+
+    it.each([true, false])('preserves emitter overrides with live orientation and localOrientation=%s', localOrientation => {
+        const model = system({quadType: QUAD_TYPE.mesh, singleParticle: true, rate: constant(1),
+            birthVelocity: constant(0, 0, 0), particleLocalOrientation: true, localOrientation,
+            rotationOverride: [0, 0, 90], scaleOverride: [2, 3, 4]});
+        const driver = createDriver(2);
+        driver.swap(model);
+        driver.steer({motion: {kind: 'bone', anchor: {
+            originAt: () => [0, 0, 0], basisInto: (time, output) => {
+                if (time < 0.1) return identityInto(output);
+                output.set(boneTurn); return output;
+            },
+        }, target: null}, life: 'once', height: 0});
+        driver.seek(0.2);
+        const output = new Float32Array(9);
+        standingFrameInto(driver.pool, 0, model.emitters[0], frameOf(driver, model.emitters[0]), output);
+        const expected = localOrientation ? [0, 0, 4, 2, 0, 0, 0, 3, 0] : [0, -3, 0, 2, 0, 0, 0, 0, 4];
+        output.forEach((value, index) => expect(value).toBeCloseTo(expected[index], 5));
+    });
+
+    it.each([true, false])('places child bones in their declared coordinate space (world=%s)', worldSpace => {
+        const child = system({singleParticle: true, rate: constant(1), birthVelocity: constant(0, 0, 0)});
+        const parent = system({singleParticle: true, rate: constant(1), birthVelocity: constant(0, 0, 0),
+            childSet: {children: [child], bones: ['hand'], probability: constant(0), onDeath: false, inheritance: null}});
+        const driver = createDriver(3);
+        driver.swap(parent);
+        driver.steer({motion: {kind: 'still'}, life: 'once', height: 100, joints: () => ({
+            worldSpace, originAt: () => [7, 11, 13], basisInto: (_time, output) => identityInto(output),
+        })});
+        driver.seek(0.2);
+        expect(driver.sources('0.0')).toHaveLength(1);
+        expect(driver.sources('0.0')[0].origin).toEqual(worldSpace ? [7, 11, 13] : [7, 111, 13]);
+    });
+
     it('bounds nested child definitions and keeps renderer feeds stable through replay', () => {
         let nested = system({singleParticle: true, rate: constant(1)});
         for (let depth = 0; depth < 8; depth++) nested = system({singleParticle: true, rate: constant(1), childSet: {

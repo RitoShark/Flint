@@ -4,6 +4,7 @@ import { CHAMPION_HEIGHT, FORWARD } from '../../space';
 
 export type Point = readonly [number, number, number];
 export interface Anchor {
+    readonly worldSpace?: boolean;
     originAt(time: number): Point;
     basisInto(time: number, out: Float32Array): Float32Array;
 }

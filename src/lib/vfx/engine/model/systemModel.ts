@@ -1,6 +1,11 @@
-import { DRAG_MOTION } from './enums';
+import { DRAG_MOTION, QUAD_TYPE } from './enums';
 import type { EmitterModel, SystemModel, ValueCurve } from './model';
 export const ROTATION_RATE = 60;
+export function usesSystemOrientation(emitter: EmitterModel): boolean {
+    return emitter.quadType === QUAD_TYPE.mesh || emitter.quadType === QUAD_TYPE.attachedMesh
+        || emitter.quadType === QUAD_TYPE.arbitraryQuad || emitter.quadType === QUAD_TYPE.arbitraryTrail
+        || emitter.quadType === QUAD_TYPE.ray || emitter.quadType === QUAD_TYPE.planarProjection;
+}
 export const emptySystem = (entry: string | null): SystemModel => ({ emitters: [], transform: null, name: null, entry, buildUpTime: 0, dragMotion: DRAG_MOTION.stepped });
 export function addressTheSame(previous: readonly EmitterModel[], next: readonly EmitterModel[]): boolean {
     if (previous.length !== next.length) return false;

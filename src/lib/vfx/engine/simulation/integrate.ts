@@ -2,7 +2,7 @@ import { Matrix } from '@babylonjs/core/Maths/math.vector';
 import { DRAG_MOTION, LINGER_TYPE } from '../model/enums';
 import type { EmitterModel, SystemModel, ValueCurve } from '../model/model';
 import type { Point } from '../model/rig';
-import { lingerSeconds, stopWaitSeconds } from '../model/systemModel';
+import { lingerSeconds, stopWaitSeconds, usesSystemOrientation } from '../model/systemModel';
 import { multiplyInto, standingInto, turnInto } from '../utils/basis';
 import type { Rng } from '../utils/Rng';
 import { sampleCurve, sampleCurveInto } from '../utils/sampleCurve';
@@ -22,7 +22,7 @@ export interface SystemStep extends Step {
     readonly stopped: boolean;
     readonly pinned?: number | null;
 }
-export interface World { readonly basis: Float32Array; readonly offset: Point }
+export interface World { readonly basis: Float32Array }
 export interface EmitterState {
     age: number;
     emitted: boolean;
@@ -55,8 +55,7 @@ export function worldOf(system: SystemModel): World {
     const matrix = system.transform ? Matrix.FromArray(system.transform) : Matrix.Identity();
     const basis = new Float32Array(FRAME_SLOTS);
     for (let cell = 0; cell < FRAME_SLOTS; cell++) basis[cell] = matrix.m[(cell % 3) * 4 + Math.floor(cell / 3)];
-    const translation = matrix.getTranslation();
-    return {basis, offset: [translation.x, translation.y, translation.z]};
+    return {basis};
 }
 
 export function createEmitterStates(emitters: readonly EmitterModel[]): EmitterState[] {
@@ -102,9 +101,9 @@ function prepareEmitter(emitter: EmitterModel, state: EmitterState, step: System
     scratch.rotation.set(emitter.rotationOverride);
     standingInto(scratch.rotation, 0, 0, scratch.override);
     for (let cell = 0; cell < FRAME_SLOTS; cell++) scratch.override[cell] *= emitter.scaleOverride[cell % 3];
-    if (emitter.localOrientation) multiplyInto(step.yaw, scratch.override, state.frame);
+    if (usesSystemOrientation(emitter)) multiplyInto(step.world, scratch.override, state.frame);
     else state.frame.set(scratch.override);
-    multiplyInto(step.world, state.frame, state.frame);
+    if (emitter.localOrientation) multiplyInto(step.yaw, state.frame, state.frame);
     const phase = life01(emitter, state);
     motion.fields = null;
     if (emitter.fields) {

@@ -3,13 +3,14 @@ import { Scalar } from '@babylonjs/core/Maths/math.scalar';
 import { LINGER_TYPE, QUAD_TYPE } from '../model/enums';
 import type { EmitterModel, ValueCurve } from '../model/model';
 import type { Point } from '../model/rig';
-import { lingerSeconds } from '../model/systemModel';
+import { lingerSeconds, usesSystemOrientation } from '../model/systemModel';
 import { multiplyInto, standingInto, turnInto } from '../utils/basis';
 import { sampleCurveInto } from '../utils/sampleCurve';
 import type { EmitterState } from './integrate';
 import { FRAME_SLOTS, NOT_LINGERING, type Pool } from './pool';
 
 export interface Source {
+    readonly yaw?: Float32Array;
     readonly pool: Pool;
     readonly time: number;
     readonly elapsed: number;
@@ -75,7 +76,8 @@ export function frameOf(source: Source, emitter: EmitterModel): DrawFrame {
     const phase = emitterPhase(emitter, source.elapsed);
     const worldAcceleration = new Float32Array(3);
     sampleCurveInto(emitter.worldAcceleration, phase, worldAcceleration, 0);
-    return {now: source.time, phase, origin: source.origin, orientation: source.orientation, worldAcceleration};
+    const orientation = usesSystemOrientation(emitter) ? source.orientation : source.yaw ?? source.orientation;
+    return {now: source.time, phase, origin: source.origin, orientation, worldAcceleration};
 }
 
 export function appearance(pool: Pool, index: number, emitter: EmitterModel, now: number, output: {scale: Float32Array; color: Float32Array}): void {
@@ -122,9 +124,14 @@ export function drawnPlaceInto(pool: Pool, index: number, frame: DrawFrame, outp
 }
 
 export function standingFrameInto(pool: Pool, index: number, emitter: EmitterModel, frame: DrawFrame, output: Float32Array): void {
-    const source = emitter.particleLocalOrientation ? frame.orientation : pool.frame;
-    const offset = emitter.particleLocalOrientation ? 0 : index * FRAME_SLOTS;
-    for (let cell = 0; cell < FRAME_SLOTS; cell++) output[cell] = source[offset + cell];
+    if (emitter.particleLocalOrientation && emitter.localOrientation) {
+        angles.set(emitter.rotationOverride);
+        standingInto(angles, 0, 0, output);
+        for (let cell = 0; cell < FRAME_SLOTS; cell++) output[cell] *= emitter.scaleOverride[cell % 3];
+        multiplyInto(frame.orientation, output, output);
+    } else {
+        for (let cell = 0; cell < FRAME_SLOTS; cell++) output[cell] = pool.frame[index * FRAME_SLOTS + cell];
+    }
 }
 
 export function particleBasisInto(pool: Pool, index: number, emitter: EmitterModel, frame: DrawFrame, output: Float32Array): void {

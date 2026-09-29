@@ -48,10 +48,13 @@ export function standAt(child: Child, placement: Bearing, now: number): void {
     offset.fill(0);
     if (child.anchor) {
         offset.set(child.anchor.originAt(now));
-        turnInto(placement.yaw, offset, 0);
         child.anchor.basisInto(now, jointBasis);
-        multiplyInto(placement.yaw, jointBasis, child.yaw);
+        if (child.anchor.worldSpace) child.yaw.set(jointBasis);
+        else {
+            turnInto(placement.yaw, offset, 0);
+            multiplyInto(placement.yaw, jointBasis, child.yaw);
+        }
     }
-    for (let axis = 0; axis < 3; axis++) child.origin[axis] = placement.place[axis] + offset[axis] + child.world.offset[axis];
-    multiplyInto(child.world.basis, child.yaw, child.orientation);
+    for (let axis = 0; axis < 3; axis++) child.origin[axis] = (child.anchor?.worldSpace ? 0 : placement.place[axis]) + offset[axis];
+    multiplyInto(child.yaw, child.world.basis, child.orientation);
 }

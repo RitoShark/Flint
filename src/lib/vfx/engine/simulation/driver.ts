@@ -1,7 +1,7 @@
 import type { SystemModel } from '../model/model';
 import { displacement, facingAt, FIRST_RIG, flightTime, landed, originAt, phaseAt, runLength, targetAt, type Joints, type Point, type RigModel } from '../model/rig';
 import { addressTheSame, emptySystem, lingerTail, systemSpan } from '../model/systemModel';
-import { flightInto, multiplyInto, turnInto, yawInto } from '../utils/basis';
+import { flightInto, multiplyInto, yawInto } from '../utils/basis';
 import { Rng } from '../utils/Rng';
 import { createCheckpoints } from './checkpoints';
 import { createChildren, createLineage, feedOf, snapshotByteLength, type ChildBirth, type ChildrenSnapshot } from './children';
@@ -86,8 +86,7 @@ class ParticlePlayback implements Driver {
     private readonly history = createCheckpoints<Snapshot>(240, 256 * 1024 * 1024);
     private readonly lineage: ReturnType<typeof createLineage>;
     private readonly children: ReturnType<typeof createChildren>;
-    private readonly yaw = new Float32Array(9);
-    private readonly vector = new Float32Array(3);
+    readonly yaw = new Float32Array(9);
     private model = emptySystem(null);
     private rig: RigModel = FIRST_RIG.rig;
     private span = systemSpan(this.model);
@@ -110,24 +109,18 @@ class ParticlePlayback implements Driver {
     get time(): number { return this.warming?.time ?? this.clock.now; }
     get phase(): number { return phaseAt(this.rig, this.clock.now, this.span, this.tail); }
     get elapsed(): number { return this.warming?.age ?? this.phase + this.model.buildUpTime; }
-    get origin(): Point { return this.transform(this.position, true); }
-    get target(): Point { return this.transform(targetAt(this.rig.motion, this.phase, this.rig.height), true); }
+    get origin(): Point { return this.position; }
+    get target(): Point { return targetAt(this.rig.motion, this.phase, this.rig.height); }
     sources(path: string): readonly Source[] { return feedOf(this.lineage, path); }
     liveChildren(): number { return this.lineage.live; }
     births(): readonly ChildBirth[] { return this.lineage.births; }
 
-    private transform(value: Point, translate = false): Point {
-        this.vector.set(value);
-        turnInto(this.world.basis, this.vector, 0);
-        const offset = translate ? this.world.offset : zero;
-        return [this.vector[0] + offset[0], this.vector[1] + offset[1], this.vector[2] + offset[2]];
-    }
     private orient(phase: number): void {
         const motion = this.rig.motion;
         if (motion.kind === 'bone') motion.anchor.basisInto(phase, this.yaw);
         else if (motion.kind === 'path') flightInto(facingAt(motion, phase), this.yaw);
         else yawInto(facingAt(motion, phase), this.yaw);
-        multiplyInto(this.world.basis, this.yaw, this.orientation);
+        multiplyInto(this.yaw, this.world.basis, this.orientation);
     }
     private resizeHistogram(): void {
         this.histogram.resize(this.model.emitters.length, runLength(this.rig.motion, this.span, this.tail));
@@ -203,9 +196,9 @@ class ParticlePlayback implements Driver {
             }
             this.previousPhase = phase;
             const next = originAt(this.rig.motion, phase, this.rig.height);
-            const moved = this.transform(displacement(this.position, next));
+            const moved = displacement(this.position, next);
             this.orient(phase);
-            this.simulate(step.dt, step.now, this.transform(next, true), moved,
+            this.simulate(step.dt, step.now, next, moved,
                 (this.rig.stopAt != null && phase >= this.rig.stopAt) || landed(this.rig.motion, phase));
             this.position = next;
             this.children.step(this, this.model, step.dt, step.now);

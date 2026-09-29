@@ -27,7 +27,8 @@ describe('idle particle attachment sampling', () => {
         expect(built.bones[0].position.x).toBe(10);
         expect(pose('missing')).toBeNull();
         expect(pose('')!.originAt(0)).toEqual([3,4,5]);
-        expect(Array.from(hand.basisInto(0,new Float32Array(9)))).toEqual([2,0,0,0,2,0,0,0,2]);
+        expect(hand.worldSpace).toBe(true);
+        expect(Array.from(hand.basisInto(0,new Float32Array(9)))).toEqual([1,0,0,0,1,0,0,0,1]);
         scene.dispose(); engine.dispose();
     });
 });

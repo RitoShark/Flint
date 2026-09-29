@@ -5,6 +5,7 @@ import type { AnimationPlayer } from '../babylon/animationPlayer';
 import type { BoneData } from '../babylon/skeletonBuilder';
 import { AnimationPose } from '../babylon/animationPose';
 import type { Anchor, Point } from './engine/model/rig';
+import { unscaleInto } from './engine/utils/basis';
 
 export function createPose(mesh: Mesh, skeleton: Skeleton | null, joints: BoneData[], player: () => AnimationPlayer | null) {
     const byName = new Map(joints.map((joint, at) => [joint.name.toLowerCase(), at]));
@@ -24,6 +25,7 @@ export function createPose(mesh: Mesh, skeleton: Skeleton | null, joints: BoneDa
         if (name && index === undefined && !liveBone) return null;
         const world = Matrix.Identity();
         const point = new Vector3(...position);
+        const scale = new Float32Array(3);
         const matrixAt = (time: number) => {
             sample(time);
             mesh.computeWorldMatrix(true);
@@ -35,10 +37,12 @@ export function createPose(mesh: Mesh, skeleton: Skeleton | null, joints: BoneDa
             return world;
         };
         return {
+            worldSpace: true,
             originAt(time) { const p = Vector3.TransformCoordinates(point, matrixAt(time)); return [p.x, p.y, p.z]; },
             basisInto(time, out) {
                 const m = matrixAt(time).m;
                 out.set([m[0], m[4], m[8], m[1], m[5], m[9], m[2], m[6], m[10]]);
+                unscaleInto(out, 0, out, 0, scale);
                 return out;
             },
         };
