@@ -163,6 +163,7 @@ fn encode_value(value: &BinValue) -> Value {
         BinValue::Rgba(a) => json!({ "t": tag, "v": a.to_vec() }),
         BinValue::String(s) => json!({ "t": tag, "v": s }),
         BinValue::Hash(v) => json!({ "t": tag, "v": v }),
+        BinValue::Hash64(v) => json!({ "t": tag, "v": format!("0x{v:016x}") }),
         BinValue::File(v) => json!({ "t": tag, "v": v }),
         BinValue::Link(v) => json!({ "t": tag, "v": v }),
         BinValue::List { item, items, .. } => json!({
@@ -355,7 +356,17 @@ fn decode_value(value: &Value) -> Result<BinValue> {
         BinType::Mtx44 => BinValue::Mtx44(decode_f32_array::<16>(map)?),
         BinType::Rgba => BinValue::Rgba(decode_u8_array::<4>(map)?),
         BinType::String => BinValue::String(as_str_field(map, "v")?),
-        BinType::Hash => BinValue::Hash(decode_uint(map)?),
+        BinType::Hash => {
+            if let Some(text) = field(map, "v")?.as_str() {
+                let hex = text
+                    .strip_prefix("0x")
+                    .filter(|hex| hex.len() == 16)
+                    .ok_or_else(|| err("wide hash requires sixteen hex digits"))?;
+                BinValue::Hash64(u64::from_str_radix(hex, 16).map_err(|_| err("invalid wide hash"))?)
+            } else {
+                BinValue::Hash(decode_uint(map)?)
+            }
+        }
         BinType::File => BinValue::File(decode_u64(map)?),
         BinType::Link => BinValue::Link(decode_uint(map)?),
         BinType::List | BinType::List2 => {

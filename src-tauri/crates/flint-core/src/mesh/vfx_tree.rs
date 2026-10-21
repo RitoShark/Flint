@@ -160,6 +160,7 @@ impl Tree<'_> {
             BinValue::Rgba(v) => json!({"type":"vector","values":v.map(|c| c as f32 / 255.0)}),
             BinValue::String(v) => json!({"type":"string","value":v}),
             BinValue::Hash(v) => json!({"type":"hash","hash":hex(*v),"name":null}),
+            BinValue::Hash64(v) => json!({"type":"hash","hash":format!("0x{v:016x}"),"name":null}),
             BinValue::File(_) => self.asset(value),
             BinValue::Link(hash) => self.link(*hash, depth + 1)?,
             BinValue::Pointer { class: 0, .. } => json!({"type":"null"}),
