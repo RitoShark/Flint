@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 const RELEASE_API_URL: &str =
-    "https://api.github.com/repos/LeagueToolkit/lmdb-hashes/releases/latest";
+    "https://api.github.com/repos/RitoShark/lmdb-hashes/releases/latest";
 const COMBINED_LMDB_DIR: &str = "hashes-combined.lmdb";
 const SPLIT_WAD_DIR: &str = "hashes-wad.lmdb";
 const SPLIT_BIN_DIR: &str = "hashes-bin.lmdb";

@@ -7,9 +7,6 @@ use std::sync::OnceLock;
 
 static LOCAL_CUSTOM_HASHES: OnceLock<RwLock<HashSet<u64>>> = OnceLock::new();
 
-/// Hashes whose only name comes from this machine's `custom` overlay rather than
-/// the shared dictionary. They resolve here and nowhere else, so anything that
-/// has to survive the trip to another machine must treat them as unresolved.
 pub fn local_custom_hashes() -> &'static RwLock<HashSet<u64>> {
     LOCAL_CUSTOM_HASHES.get_or_init(|| RwLock::new(HashSet::new()))
 }
@@ -125,14 +122,53 @@ fn merge_extracted_bin_overlay(hashes: &mut HashMapper, hash_dir: &str) -> usize
     count
 }
 
-/// Load BIN hashes from `hashes-bin.lmdb` (named DB `"bin"`, 4-byte BE keys)
-/// and WAD hashes from `hashes-wad.lmdb` (named DB `"wad"`, 8-byte BE keys).
-///
-/// The lmdb-hashes release bundles all 4 BIN hash categories (entries, fields,
-/// hashes, types) into a single DB keyed by FNV1a-32, and all WAD asset paths
-/// into a DB keyed by xxHash64. `rs_bin::to_text` resolves every u32 hash by
-/// widening it to `u64` (`mapper.get(hash as u64)`), and resolves 64-bit WAD
-/// file references (`file = <xxh64>`) via `mapper.get(hash)`.
+pub fn load_bin_hashes_from_env(env: &heed::Env, hashes: &mut HashMapper) -> usize {
+    let v2_load_order = ["binhashes", "binfields", "bintypes", "binentries"];
+    let mut dbs: Vec<_> = v2_load_order
+        .iter()
+        .filter_map(|&name| crate::hash::lmdb_cache::cached_db(env, name).map(|db| (name, db)))
+        .collect();
+    if dbs.is_empty() {
+        if let Some(db) = crate::hash::lmdb_cache::cached_db(env, "bin") {
+            dbs.push(("bin", db));
+        }
+    }
+    if dbs.is_empty() {
+        tracing::warn!("BIN LMDB has no v2 ('binentries'/'bintypes'/'binfields'/'binhashes') or legacy ('bin') databases");
+        return 0;
+    }
+
+    let Ok(rtxn) = env.read_txn() else {
+        tracing::warn!("Failed to open BIN LMDB read txn");
+        return 0;
+    };
+
+    let mut bin_count = 0;
+    for (db_name, db) in dbs {
+        let Ok(iter) = db.iter(&rtxn) else {
+            tracing::warn!("Failed to create BIN LMDB iterator for '{}'", db_name);
+            continue;
+        };
+        for result in iter {
+            match result {
+                Ok((key_bytes, path_str)) => {
+                    if key_bytes.len() == 4 {
+                        let hash = u32::from_be_bytes([
+                            key_bytes[0], key_bytes[1], key_bytes[2], key_bytes[3],
+                        ]);
+                        hashes.insert(hash as u64, path_str.to_string());
+                        bin_count += 1;
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("Error reading BIN LMDB '{}' entry: {}", db_name, e);
+                }
+            }
+        }
+    }
+    bin_count
+}
+
 pub fn load_bin_hashes() -> HashMapper {
     use crate::hash::{downloader::get_hash_dir, get_bin_env};
 
@@ -146,40 +182,12 @@ pub fn load_bin_hashes() -> HashMapper {
         }
     };
 
-    let mut bin_count = 0;
-    if let Some(env) = get_bin_env(&hash_dir) {
-        // Open (and cache) the "bin" dbi handle BEFORE starting the read txn.
-        if let Some(db) = crate::hash::lmdb_cache::cached_db(&env, "bin") {
-            if let Ok(rtxn) = env.read_txn() {
-                if let Ok(iter) = db.iter(&rtxn) {
-                    for result in iter {
-                        match result {
-                            Ok((key_bytes, path_str)) => {
-                                if key_bytes.len() == 4 {
-                                    let hash = u32::from_be_bytes([
-                                        key_bytes[0], key_bytes[1], key_bytes[2], key_bytes[3],
-                                    ]);
-                                    hashes.insert(hash as u64, path_str.to_string());
-                                    bin_count += 1;
-                                }
-                            }
-                            Err(e) => {
-                                tracing::warn!("Error reading BIN LMDB entry: {}", e);
-                            }
-                        }
-                    }
-                } else {
-                    tracing::warn!("Failed to create BIN LMDB iterator: {}", hash_dir);
-                }
-            } else {
-                tracing::warn!("Failed to open BIN LMDB read txn: {}", hash_dir);
-            }
-        } else {
-            tracing::warn!("BIN LMDB has no 'bin' named database");
-        }
+    let bin_count = if let Some(env) = get_bin_env(&hash_dir) {
+        load_bin_hashes_from_env(&env, &mut hashes)
     } else {
         tracing::warn!("BIN LMDB not found at {}/hashes-bin.lmdb — BIN hashes unavailable", hash_dir);
-    }
+        0
+    };
 
     let wad_count = merge_wad_hashes(&mut hashes, &hash_dir);
     let custom_count = merge_custom_hashes(&mut hashes, &hash_dir);
@@ -274,13 +282,6 @@ pub fn save_custom_bin_hashes(entries: &BTreeMap<u32, String>) -> Result<usize, 
 
 static BIN_HASHES_CACHE: OnceLock<RwLock<HashMapper>> = OnceLock::new();
 
-/// Thread-safe; loads hashes from disk once, then serves the cached map.
-///
-/// Self-heals an empty init: if the very first load returned nothing (LMDB not
-/// yet downloaded, or a cold-start snapshot race), the `OnceLock` would
-/// otherwise freeze that empty map forever and every BIN conversion would show
-/// raw hashes. Instead, an empty cache is retried lazily on the next call, so a
-/// later download / warm env fills it without an explicit `reload_bin_hash_cache`.
 pub fn get_cached_bin_hashes() -> &'static RwLock<HashMapper> {
     let cache = BIN_HASHES_CACHE.get_or_init(|| {
         tracing::info!("Initializing global BIN hash cache...");
@@ -300,7 +301,6 @@ pub fn get_cached_bin_hashes() -> &'static RwLock<HashMapper> {
     cache
 }
 
-/// Call after updating hash files on disk.
 pub fn reload_bin_hash_cache() {
     if let Some(cache) = BIN_HASHES_CACHE.get() {
         tracing::info!("Reloading BIN hash cache from disk...");
@@ -331,7 +331,7 @@ mod tests {
         let env = unsafe {
             EnvOpenOptions::new()
                 .map_size(1024 * 1024)
-                .max_dbs(2)
+                .max_dbs(8)
                 .open(&dir)
                 .unwrap()
         };
@@ -378,6 +378,72 @@ mod tests {
 
         drop(env);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn load_bin_hashes_from_env_reads_v2_tables_and_legacy_fallback() {
+        let v2_dir = std::env::temp_dir().join(format!(
+            "flint-bin-dict-v2-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&v2_dir).unwrap();
+        let v2_env = unsafe {
+            EnvOpenOptions::new()
+                .map_size(1024 * 1024)
+                .max_dbs(8)
+                .open(&v2_dir)
+                .unwrap()
+        };
+        let mut wtxn = v2_env.write_txn().unwrap();
+        let entries = v2_env.create_database::<Bytes, Str>(&mut wtxn, Some("binentries")).unwrap();
+        let types = v2_env.create_database::<Bytes, Str>(&mut wtxn, Some("bintypes")).unwrap();
+        let fields = v2_env.create_database::<Bytes, Str>(&mut wtxn, Some("binfields")).unwrap();
+        let hashes = v2_env.create_database::<Bytes, Str>(&mut wtxn, Some("binhashes")).unwrap();
+        entries.put(&mut wtxn, &0x0102_0304u32.to_be_bytes(), "Characters/Ahri/Skins/Skin0").unwrap();
+        types.put(&mut wtxn, &0x4247_cbb9u32.to_be_bytes(), "VfxSystemDefinitionData").unwrap();
+        fields.put(&mut wtxn, &0x0506_0708u32.to_be_bytes(), "particleName").unwrap();
+        hashes.put(&mut wtxn, &0x090a_0b0cu32.to_be_bytes(), "Ahri_Orb").unwrap();
+        wtxn.commit().unwrap();
+
+        let mut mapper = HashMapper::new();
+        assert_eq!(load_bin_hashes_from_env(&v2_env, &mut mapper), 4);
+        assert_eq!(mapper.get(0x0102_0304), Some("Characters/Ahri/Skins/Skin0"));
+        assert_eq!(mapper.get(0x4247_cbb9), Some("VfxSystemDefinitionData"));
+        assert_eq!(mapper.get(0x0506_0708), Some("particleName"));
+        assert_eq!(mapper.get(0x090a_0b0c), Some("Ahri_Orb"));
+        v2_env.prepare_for_closing().wait();
+        let _ = std::fs::remove_dir_all(v2_dir);
+
+        let v1_dir = std::env::temp_dir().join(format!(
+            "flint-bin-dict-v1-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&v1_dir).unwrap();
+        let v1_env = unsafe {
+            EnvOpenOptions::new()
+                .map_size(1024 * 1024)
+                .max_dbs(8)
+                .open(&v1_dir)
+                .unwrap()
+        };
+        let mut wtxn = v1_env.write_txn().unwrap();
+        let legacy = v1_env.create_database::<Bytes, Str>(&mut wtxn, Some("bin")).unwrap();
+        legacy.put(&mut wtxn, &0x4247_cbb9u32.to_be_bytes(), "VfxSystemDefinitionData").unwrap();
+        wtxn.commit().unwrap();
+
+        let mut v1_mapper = HashMapper::new();
+        assert_eq!(load_bin_hashes_from_env(&v1_env, &mut v1_mapper), 1);
+        assert_eq!(v1_mapper.get(0x4247_cbb9), Some("VfxSystemDefinitionData"));
+        v1_env.prepare_for_closing().wait();
+        let _ = std::fs::remove_dir_all(v1_dir);
     }
 
     #[test]

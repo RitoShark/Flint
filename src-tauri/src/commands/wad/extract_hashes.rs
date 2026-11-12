@@ -134,10 +134,11 @@ fn merge_into_bin_lmdb(
 ) -> Result<usize, String> {
     let env = flint_core::hash::get_bin_env(hash_dir)
         .ok_or_else(|| "BIN LMDB not present (run hash download first)".to_string())?;
+    let db_name = flint_core::hash::primary_bin_hashes_db_name(&env);
     let mut wtxn = env.write_txn().map_err(|e| format!("write_txn: {}", e))?;
     let db: Database<Bytes, Str> = env
-        .create_database(&mut wtxn, Some("bin"))
-        .map_err(|e| format!("create_database bin: {}", e))?;
+        .create_database(&mut wtxn, Some(db_name))
+        .map_err(|e| format!("create_database {}: {}", db_name, e))?;
     let mut written = 0usize;
     for (h, n) in entries {
         let key = h.to_be_bytes();

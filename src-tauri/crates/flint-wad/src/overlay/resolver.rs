@@ -185,7 +185,7 @@ mod tests {
         let env = unsafe {
             EnvOpenOptions::new()
                 .map_size(1024 * 1024 * 1024)
-                .max_dbs(2)
+                .max_dbs(8)
                 .open(dir)
                 .expect("open temp lmdb env")
         };
