@@ -273,12 +273,19 @@ export interface FileEntry {
     asset_type: AssetType;
 }
 
+export type FileChange =
+    | { status: 'added'; entry: FileEntry }
+    | { status: 'modified'; old_hash: string; old_size: number; new: FileEntry }
+    | { status: 'deleted'; old_hash: string; old_size: number; asset_type: AssetType };
+
 export interface Checkpoint {
     id: string;
+    parent_id?: string | null;
     timestamp: string; // ISO 8601
     message: string;
     author?: string;
     tags: string[];
+    changes?: Record<string, FileChange>;
     file_manifest: Record<string, FileEntry>;
 }
 

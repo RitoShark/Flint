@@ -82,38 +82,56 @@ pub struct ChromaLinks {
 }
 
 fn chroma_links_path(project_path: &Path) -> PathBuf {
+    project_path.join(".flint").join("chroma-links.json")
+}
+
+fn legacy_chroma_links_path(project_path: &Path) -> PathBuf {
     project_path.join("chroma-links.json")
 }
 
 fn read_chroma_links(project_path: &Path) -> ChromaLinks {
     let p = chroma_links_path(project_path);
-    if !p.exists() {
+    let legacy = legacy_chroma_links_path(project_path);
+    if !p.exists() && legacy.exists() {
+        let _ = flint_core::project_storage::ensure_metadata_dir(project_path);
+        if fs::rename(&legacy, &p).is_err() && fs::copy(&legacy, &p).is_ok() {
+            let _ = fs::remove_file(&legacy);
+        }
+    }
+    let target = if p.exists() { p } else { legacy };
+    if !target.exists() {
         return ChromaLinks::default();
     }
-    let raw = fs::read_to_string(&p).unwrap_or_default();
+    let raw = fs::read_to_string(&target).unwrap_or_default();
     serde_json::from_str(&raw).unwrap_or_default()
 }
 
 fn write_chroma_links(project_path: &Path, links: &ChromaLinks) -> Result<(), String> {
+    flint_core::project_storage::ensure_metadata_dir(project_path)
+        .map_err(|e| format!("Failed to prepare .flint directory: {}", e))?;
     let content = serde_json::to_string_pretty(links)
         .map_err(|e| format!("Failed to serialize chroma-links.json: {}", e))?;
     fs::write(chroma_links_path(project_path), content)
         .map_err(|e| format!("Failed to write chroma-links.json: {}", e))?;
+    let legacy = legacy_chroma_links_path(project_path);
+    if legacy.exists() {
+        let _ = fs::remove_file(legacy);
+    }
     Ok(())
 }
 
-/// Walk `root` and collect every `.bin` file that belongs to `skin{skin_num}`.
-///
-/// Two layouts are recognised:
-///   1. Directory-per-skin:  `…/skin{N}/anything.bin`
-///      → parent directory name == `skin{N}`
-///   2. WAD-extracted flat:  `…/skins/skin{N}.bin`
-///      → file stem == `skin{N}` and parent directory name == `skins`
 fn find_skin_bins(root: &Path, skin_num: u32) -> Vec<PathBuf> {
     let target_dir = format!("skin{}", skin_num).to_ascii_lowercase();
     let mut result = Vec::new();
     for entry in walkdir::WalkDir::new(root)
         .into_iter()
+        .filter_entry(|e| {
+            !e.file_type().is_dir()
+                || !matches!(
+                    e.file_name().to_str(),
+                    Some(".flint" | ".git" | "node_modules" | "output")
+                )
+        })
         .filter_map(|e| e.ok())
     {
         let path = entry.path();

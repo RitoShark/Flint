@@ -442,6 +442,7 @@ fn main() {
             commands::checkpoint::create_checkpoint,
             commands::checkpoint::list_checkpoints,
             commands::checkpoint::restore_checkpoint,
+            commands::checkpoint::restore_checkpoint_file,
             commands::checkpoint::compare_checkpoints,
             commands::checkpoint::delete_checkpoint,
             commands::checkpoint::read_checkpoint_file,

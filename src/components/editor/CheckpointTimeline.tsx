@@ -33,6 +33,7 @@ export const CheckpointTimeline: React.FC = () => {
     const loadRequest = useRef(0);
     const previewRequest = useRef(0);
     const [selectedCheckpoint, setSelectedCheckpoint] = useState<string | null>(null);
+    const [compareBaseId, setCompareBaseId] = useState<string>('parent');
     const [diff, setDiff] = useState<CheckpointDiff | null>(null);
     const [isComparing, setIsComparing] = useState(false);
 
@@ -66,8 +67,6 @@ export const CheckpointTimeline: React.FC = () => {
         if (!currentProjectPath) { setIsLoading(false); return; }
         setIsLoading(true);
         try {
-            // One IPC call returns the list + every adjacent diff. Diffs are
-            // computed in parallel on the Rust side via rayon.
             const { checkpoints: list, diffs } = await api.listCheckpointsWithDiffs(currentProjectPath);
             if (request !== loadRequest.current) return;
             setCheckpoints(list);
@@ -83,6 +82,7 @@ export const CheckpointTimeline: React.FC = () => {
 
     useEffect(() => {
         setSelectedCheckpoint(null);
+        setCompareBaseId('parent');
         setCheckpoints([]);
         setPage(0);
         loadCheckpoints();
@@ -102,8 +102,24 @@ export const CheckpointTimeline: React.FC = () => {
         const idx = checkpoints.findIndex(c => c.id === selectedCheckpoint);
         if (idx === -1) return;
 
-        // If it's the oldest checkpoint, show as "initial" (all files are added)
-        if (idx === checkpoints.length - 1) {
+        if (compareBaseId !== 'parent' && compareBaseId !== selectedCheckpoint) {
+            let cancelled = false;
+            setIsComparing(true);
+            api.compareCheckpoints(currentProjectPath, compareBaseId, selectedCheckpoint)
+                .then(d => {
+                    if (cancelled) return;
+                    setDiff(d);
+                })
+                .catch(err => {
+                    if (cancelled) return;
+                    console.error('Failed to compare:', err);
+                    showToast('error', 'Failed to compute diff');
+                })
+                .finally(() => { if (!cancelled) setIsComparing(false); });
+            return () => { cancelled = true; };
+        }
+
+        if (idx === checkpoints.length - 1 && !checkpoints[idx].parent_id) {
             const cp = checkpoints[idx];
             const initialDiff: CheckpointDiff = {
                 added: Object.values(cp.file_manifest),
@@ -119,7 +135,17 @@ export const CheckpointTimeline: React.FC = () => {
             return;
         }
 
-        const prevId = checkpoints[idx + 1].id;
+        const prevId = checkpoints[idx].parent_id || checkpoints[idx + 1]?.id;
+        if (!prevId) {
+            const cp = checkpoints[idx];
+            setDiff({
+                added: Object.values(cp.file_manifest),
+                modified: [],
+                deleted: [],
+            });
+            return;
+        }
+
         let cancelled = false;
         setIsComparing(true);
         api.compareCheckpoints(currentProjectPath, prevId, selectedCheckpoint)
@@ -135,7 +161,7 @@ export const CheckpointTimeline: React.FC = () => {
             })
             .finally(() => { if (!cancelled) setIsComparing(false); });
         return () => { cancelled = true; };
-    }, [selectedCheckpoint, checkpoints, currentProjectPath, diffCache, showToast]);
+    }, [selectedCheckpoint, compareBaseId, checkpoints, currentProjectPath, diffCache, showToast]);
 
     const handleCreateCheckpoint = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -146,6 +172,7 @@ export const CheckpointTimeline: React.FC = () => {
         try {
             const created = await api.createCheckpoint(currentProjectPath, message);
             setSelectedCheckpoint(created.id);
+            setCompareBaseId('parent');
             setSearch('');
             setFilter('all');
             setPage(0);
@@ -154,7 +181,11 @@ export const CheckpointTimeline: React.FC = () => {
             await loadCheckpoints();
         } catch (err) {
             console.error('Failed to create checkpoint:', err);
-            showToast('error', 'Failed to create checkpoint');
+            const rawMsg = err instanceof Error ? err.message : String(err);
+            const friendly = rawMsg.includes('No changes since last checkpoint')
+                ? 'No changes since last checkpoint'
+                : 'Failed to create checkpoint';
+            showToast('error', friendly);
         } finally {
             setIsCreating(false);
             setCreateProgress(null);
@@ -178,6 +209,25 @@ export const CheckpointTimeline: React.FC = () => {
                     showToast('error', 'Failed to restore checkpoint');
                 } finally {
                     setReady();
+                }
+            },
+        });
+    };
+
+    const handleRestoreSingleFile = (e: React.MouseEvent, filePath: string) => {
+        e.stopPropagation();
+        if (!currentProjectPath || !selectedCheckpoint) return;
+        openConfirmDialog({
+            title: `Restore ${getFileName(filePath)}?`,
+            message: `This will restore "${filePath}" from checkpoint ${selectedCheckpoint.slice(0, 7)} into your working tree without modifying other files.`,
+            confirmLabel: 'Restore File',
+            onConfirm: async () => {
+                try {
+                    await api.restoreCheckpointFile(currentProjectPath, selectedCheckpoint, filePath);
+                    showToast('success', `Restored ${getFileName(filePath)}`);
+                } catch (err) {
+                    console.error('Failed to restore file:', err);
+                    showToast('error', `Failed to restore ${getFileName(filePath)}`);
                 }
             },
         });
@@ -252,7 +302,7 @@ export const CheckpointTimeline: React.FC = () => {
     const isAutomatic = (cp: Checkpoint) => cp.tags.some(tag => ['auto', 'auto-backup', 'paint', 'fix'].includes(tag)) || cp.message.startsWith('Auto-checkpoint:');
     const filtered = checkpoints.filter(cp =>
         (filter === 'all' || (filter === 'auto' ? isAutomatic(cp) : !isAutomatic(cp))) &&
-        `${cp.message} ${cp.tags.join(' ')} ${new Date(cp.timestamp).toLocaleString()}`.toLowerCase().includes(search.toLowerCase())
+        `${cp.id.slice(0, 7)} ${cp.message} ${cp.tags.join(' ')} ${new Date(cp.timestamp).toLocaleString()}`.toLowerCase().includes(search.toLowerCase())
     );
     const pageCount = Math.max(1, Math.ceil(filtered.length / 30));
     const currentPage = Math.min(page, pageCount - 1);
@@ -321,7 +371,7 @@ export const CheckpointTimeline: React.FC = () => {
                     ) : (
                         visible.map(cp => {
                             const cpDiff = diffCache[cp.id];
-                            const isInitial = cp.id === checkpoints[checkpoints.length - 1]?.id;
+                            const isInitial = cp.id === checkpoints[checkpoints.length - 1]?.id && !cp.parent_id;
                             return (
                                 <div
                                     key={cp.id}
@@ -329,7 +379,11 @@ export const CheckpointTimeline: React.FC = () => {
                                     tabIndex={0}
                                     aria-pressed={selectedCheckpoint === cp.id}
                                     onKeyDown={e => {
-                                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedCheckpoint(cp.id); }
+                                        if (e.key === 'Enter' || e.key === ' ') {
+                                            e.preventDefault();
+                                            setSelectedCheckpoint(cp.id);
+                                            setCompareBaseId('parent');
+                                        }
                                         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                                             e.preventDefault();
                                             const next = e.key === 'ArrowDown' ? e.currentTarget.nextElementSibling : e.currentTarget.previousElementSibling;
@@ -337,14 +391,18 @@ export const CheckpointTimeline: React.FC = () => {
                                         }
                                     }}
                                     className={`checkpoint-item ${selectedCheckpoint === cp.id ? 'checkpoint-item--selected' : ''}`}
-                                    onClick={() => setSelectedCheckpoint(
-                                        selectedCheckpoint === cp.id ? null : cp.id
-                                    )}
+                                    onClick={() => {
+                                        setSelectedCheckpoint(selectedCheckpoint === cp.id ? null : cp.id);
+                                        setCompareBaseId('parent');
+                                    }}
                                 >
                                     <div className="checkpoint-item__marker" />
                                     <div className="checkpoint-item__content">
                                         <div className="checkpoint-item__header">
-                                            <span className="checkpoint-item__message" title={cp.message}>{cp.message}</span>
+                                            <div className="checkpoint-item__title-row">
+                                                <span className="checkpoint-item__hash">{cp.id.slice(0, 7)}</span>
+                                                <span className="checkpoint-item__message" title={cp.message}>{cp.message}</span>
+                                            </div>
                                             <span className="checkpoint-item__date">
                                                 {new Date(cp.timestamp).toLocaleString()}
                                             </span>
@@ -390,7 +448,30 @@ export const CheckpointTimeline: React.FC = () => {
 
                 <div className="checkpoint-view__details">
                     {selected && <div className="checkpoint-view__selection">
-                        <div><strong>{selected.message}</strong><small>{new Date(selected.timestamp).toLocaleString()}</small></div>
+                        <div>
+                            <div className="checkpoint-view__selection-title">
+                                <span className="checkpoint-item__hash">{selected.id.slice(0, 7)}</span>
+                                <strong>{selected.message}</strong>
+                            </div>
+                            <small>{new Date(selected.timestamp).toLocaleString()}</small>
+                        </div>
+                        {checkpoints.length > 1 && (
+                            <select
+                                className="dl-input checkpoint-view__compare-select"
+                                aria-label="Compare against checkpoint"
+                                value={compareBaseId}
+                                onChange={e => setCompareBaseId(e.target.value)}
+                            >
+                                <option value="parent">Compare: Parent commit</option>
+                                {checkpoints
+                                    .filter(cp => cp.id !== selected.id)
+                                    .map(cp => (
+                                        <option key={cp.id} value={cp.id}>
+                                            vs {cp.id.slice(0, 7)} — {cp.message.slice(0, 32)}
+                                        </option>
+                                    ))}
+                            </select>
+                        )}
                         <Button variant="ghost" size="sm" onClick={() => handleRestore(selected.id)}>Restore</Button>
                         <Button variant="danger" size="sm" onClick={() => handleDelete(selected.id)}>Delete</Button>
                     </div>}
@@ -426,6 +507,14 @@ export const CheckpointTimeline: React.FC = () => {
                                                 <span className="diff-file__name">{getFileName(f.path)}</span>
                                                 <span className="diff-file__path-hint">{f.path}</span>
                                                 <span className="diff-file__size">{formatSize(f.size)}</span>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={e => handleRestoreSingleFile(e, f.path)}
+                                                    title="Restore this file from checkpoint"
+                                                >
+                                                    Restore
+                                                </Button>
                                             </div>
                                         ))}
                                         {diff.modified.map(([old, curr]) => (
@@ -439,6 +528,14 @@ export const CheckpointTimeline: React.FC = () => {
                                                 <span className="diff-file__name">{getFileName(curr.path)}</span>
                                                 <span className="diff-file__path-hint">{curr.path}</span>
                                                 <span className="diff-file__size">{formatSize(curr.size)}</span>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={e => handleRestoreSingleFile(e, curr.path)}
+                                                    title="Restore this file from checkpoint"
+                                                >
+                                                    Restore
+                                                </Button>
                                             </div>
                                         ))}
                                         {diff.deleted.map(f => (
@@ -452,6 +549,14 @@ export const CheckpointTimeline: React.FC = () => {
                                                 <span className="diff-file__name">{getFileName(f.path)}</span>
                                                 <span className="diff-file__path-hint">{f.path}</span>
                                                 <span className="diff-file__size">{formatSize(f.size)}</span>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={e => handleRestoreSingleFile(e, f.path)}
+                                                    title="Restore deleted file into working tree"
+                                                >
+                                                    Restore
+                                                </Button>
                                             </div>
                                         ))}
                                         {diff.added.length === 0 && diff.modified.length === 0 && diff.deleted.length === 0 && (

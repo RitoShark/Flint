@@ -7,6 +7,10 @@
 .checkpoint-view__selection { flex-shrink: 0; }
 .checkpoint-view__details > .checkpoint-details { flex: 1; min-height: 0; height: auto; padding: 12px; }
 .checkpoint-view__selection small { display: block; color: var(--text-muted); margin-top: 4px; }
+.checkpoint-view__selection-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.checkpoint-view__compare-select { width: auto; max-width: 240px; font-size: var(--text-xs); }
+.checkpoint-item__title-row { display: flex; align-items: center; gap: 6px; min-width: 0; width: 100%; }
+.checkpoint-item__hash { font-family: var(--font-mono); font-size: 11px; padding: 1px 6px; border-radius: 4px; background: color-mix(in oklab, var(--bg-tertiary) 80%, transparent); border: 1px solid var(--border); color: var(--text-secondary); flex-shrink: 0; }
 .checkpoint-item:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: -2px; }
 .checkpoint-modal__body > .checkpoint-view { height: min(70vh, 720px); min-height: 0; }
 @media (max-width: 650px) {

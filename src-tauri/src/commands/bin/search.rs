@@ -30,7 +30,6 @@ pub struct FileMatches {
     pub path: String,
     pub rel_path: String,
     pub matches: Vec<SearchMatch>,
-    /// Matches beyond `MAX_MATCHES_PER_FILE` that were not returned.
     pub extra: usize,
 }
 
@@ -38,15 +37,12 @@ pub struct FileMatches {
 pub struct SearchResult {
     pub files: Vec<FileMatches>,
     pub scanned: usize,
-    /// Set when the total cap cut the result short — the UI must say so rather
-    /// than presenting a partial sweep as complete.
     pub truncated: bool,
 }
 
 #[derive(Serialize, Default, Debug)]
 pub struct ReplaceResult {
     pub files_changed: usize,
-    /// Successfully written files; the caller must refresh them because write echoes are suppressed.
     pub changed_paths: Vec<String>,
     pub replacements: usize,
     pub failed: Vec<String>,
@@ -68,10 +64,6 @@ fn is_word_byte(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_'
 }
 
-/// The `regex` crate has no lookarounds, so whole-word is a post-filter on the
-/// bytes either side of the match. That also bounds a query starting or ending
-/// with a non-word character, which `\b` would place wrongly — BIN text is full
-/// of `0x…` and `"path/like/this"`.
 fn word_bounded(line: &str, start: usize, end: usize) -> bool {
     let bytes = line.as_bytes();
     let before_ok = start == 0 || !is_word_byte(bytes[start - 1]);
@@ -110,10 +102,6 @@ fn search_in_text(text: &str, pattern: &Regex, whole_word: bool) -> (Vec<SearchM
     (matches, extra)
 }
 
-/// Replace every match, line by line so whole-word can veto one.
-///
-/// `expand` is used rather than a literal push so `$1`-style backreferences work
-/// in regex mode, matching what the find half of the pattern captured.
 fn replace_in_text(
     text: &str,
     pattern: &Regex,
@@ -144,11 +132,6 @@ fn replace_in_text(
     (out, count)
 }
 
-/// Ritobin text for a BIN, rendered in memory.
-///
-/// Never reads a `.ritobin` sidecar: a leftover one has nothing invalidating it, so a search
-/// would report hits against text the bin no longer holds. Goes through the shared renderer
-/// so a repathed `file = 0x…` is searchable by its path.
 fn ritobin_text(bin_path: &Path) -> Option<String> {
     let bytes = std::fs::read(bin_path).ok()?;
     let tree = read_bin(&bytes).ok()?;
@@ -156,25 +139,35 @@ fn ritobin_text(bin_path: &Path) -> Option<String> {
 }
 
 fn is_bin(path: &Path) -> bool {
-    path.extension().and_then(|e| e.to_str()).map(|e| e.eq_ignore_ascii_case("bin")) == Some(true)
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.eq_ignore_ascii_case("bin"))
+        == Some(true)
 }
 
 fn collect_project_bins(project: &Path) -> Vec<PathBuf> {
     walkdir::WalkDir::new(project)
         .into_iter()
+        .filter_entry(|e| {
+            !e.file_type().is_dir()
+                || !matches!(
+                    e.file_name().to_str(),
+                    Some(".flint" | ".git" | "node_modules" | "output")
+                )
+        })
         .filter_map(|e| e.ok())
         .map(|e| e.into_path())
         .filter(|p| p.is_file() && is_bin(p))
         .collect()
 }
 
-/// Linked bins that resolve OUTSIDE the walked project tree.
-///
-/// A project's own linked bins are already covered by the walk; this only adds
-/// the ones the `linked` header points at somewhere else.
 fn out_of_tree_links(project: &Path, seed: &Path) -> Vec<PathBuf> {
-    let Ok(bytes) = std::fs::read(seed) else { return Vec::new() };
-    let Ok(tree) = read_bin(&bytes) else { return Vec::new() };
+    let Ok(bytes) = std::fs::read(seed) else {
+        return Vec::new();
+    };
+    let Ok(tree) = read_bin(&bytes) else {
+        return Vec::new();
+    };
     let project_root = flint_core::mesh::discovery::find_project_root(seed);
 
     tree.linked
@@ -263,7 +256,11 @@ pub async fn search_project_bins(
         }
         files.retain(|f| !f.matches.is_empty());
 
-        Ok(SearchResult { files, scanned, truncated })
+        Ok(SearchResult {
+            files,
+            scanned,
+            truncated,
+        })
     })
     .await
     .map_err(|e| format!("Search task failed: {e}"))?
@@ -287,7 +284,9 @@ pub async fn replace_in_bins(
         for path in &paths {
             let bin_path = PathBuf::from(path);
             let Some(text) = ritobin_text(&bin_path) else {
-                result.failed.push(format!("{path}: could not read as ritobin"));
+                result
+                    .failed
+                    .push(format!("{path}: could not read as ritobin"));
                 continue;
             };
 
@@ -326,7 +325,11 @@ mod tests {
     use super::*;
 
     fn opts(case_sensitive: bool, whole_word: bool, regex: bool) -> SearchOptions {
-        SearchOptions { case_sensitive, whole_word, regex }
+        SearchOptions {
+            case_sensitive,
+            whole_word,
+            regex,
+        }
     }
 
     const TEXT: &str = "\
@@ -397,7 +400,10 @@ entries: map[hash,embed] = {
         let (out, count) = replace_in_text(TEXT, &re, "SKIN", true);
         assert_eq!(count, 1);
         assert!(out.contains("\"SKIN scale is not skinScale\""));
-        assert!(out.contains("skinScale: f32 = 1.0"), "the property must be untouched");
+        assert!(
+            out.contains("skinScale: f32 = 1.0"),
+            "the property must be untouched"
+        );
     }
 
     #[test]
@@ -423,5 +429,19 @@ entries: map[hash,embed] = {
         let (hits, extra) = search_in_text(&big, &re, false);
         assert_eq!(hits.len(), MAX_MATCHES_PER_FILE);
         assert_eq!(extra, 25);
+    }
+
+    #[test]
+    fn collect_project_bins_skips_flint_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        let flint_dir = dir.path().join(".flint").join("objects");
+        std::fs::create_dir_all(&flint_dir).unwrap();
+        std::fs::write(flint_dir.join("cached.bin"), b"ignored").unwrap();
+        let game_bin = dir.path().join("data").join("skin0.bin");
+        std::fs::create_dir_all(game_bin.parent().unwrap()).unwrap();
+        std::fs::write(&game_bin, b"real").unwrap();
+
+        let found = collect_project_bins(dir.path());
+        assert_eq!(found, vec![game_bin]);
     }
 }

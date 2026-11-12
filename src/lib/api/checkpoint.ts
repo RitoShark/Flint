@@ -17,6 +17,14 @@ export async function restoreCheckpoint(projectPath: string, checkpointId: strin
     return invokeCommand('restore_checkpoint', { projectPath, checkpointId });
 }
 
+export async function restoreCheckpointFile(
+    projectPath: string,
+    checkpointId: string,
+    filePath: string
+): Promise<void> {
+    return invokeCommand('restore_checkpoint_file', { projectPath, checkpointId, filePath });
+}
+
 export async function compareCheckpoints(
     projectPath: string,
     fromId: string,
