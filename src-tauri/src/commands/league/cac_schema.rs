@@ -388,6 +388,7 @@ fn render_value(
             Some(name) => write!(out, "\"{}\"", escape_str(&name)).unwrap(),
             None => write!(out, "0x{:08x}", h).unwrap(),
         },
+        BinValue::Hash64(h) => write!(out, "0x{:016x}", h).unwrap(),
         BinValue::Link(h) => match resolve_name(*h, provider) {
             Some(name) => write!(out, "\"{}\"", escape_str(&name)).unwrap(),
             None => write!(out, "0x{:08x}", h).unwrap(),
