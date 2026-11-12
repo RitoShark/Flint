@@ -242,6 +242,7 @@ pub fn drop_lmdb_cache() {
 
 static DB_HANDLES: OnceLock<Mutex<HashMap<String, Database<Bytes, Str>>>> = OnceLock::new();
 
+#[cfg(test)]
 pub(crate) fn install_database(source: &Path, target: &Path, name: &str) -> heed::Result<()> {
     install_databases(source, target, &[name])
 }
