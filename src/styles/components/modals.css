@@ -256,10 +256,10 @@
 }
 
 .dl-modal.mi-modal {
-  max-width: 900px;
-  width: 100%;
-  height: 74vh;
-  max-height: 700px;
+  max-width: 1080px;
+  width: 94vw;
+  height: 82vh;
+  max-height: 780px;
   border-radius: 14px;
   border: none;
   background: radial-gradient(120% 80% at 100% 0%,
@@ -279,7 +279,7 @@
 
 .mi-modal .dl-modal__body {
   display: grid;
-  grid-template-columns: 186px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr);
   gap: 0;
   padding: 0;

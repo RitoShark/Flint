@@ -36,7 +36,8 @@
   white-space: nowrap;
 }
 
-.mi-modal .mi-dirty {
+.mi-modal .mi-dirty,
+.mi-inline .mi-dirty {
   flex: none;
   padding: 3px 8px;
   font-size: 10px;
@@ -130,11 +131,88 @@
   white-space: nowrap;
 }
 
-.mi-body { min-width: 0; min-height: 0; overflow-y: auto; }
+.mi-body { min-width: 0; min-height: 0; overflow-y: auto; flex: 1; }
 
-.mi-pane { display: flex; flex-direction: column; gap: 18px; padding: 18px 22px 24px; max-width: 560px; }
+.mi-pane { display: flex; flex-direction: column; gap: 14px; padding: 14px 18px 20px; max-width: 760px; }
 
-.mi-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.mi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 14px;
+  padding: 14px 18px 20px;
+  align-items: start;
+}
+
+.mi-col {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
+}
+
+.mi-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px 16px;
+  background: color-mix(in oklab, var(--bg-primary) 24%, transparent);
+  border: 1px solid color-mix(in oklab, var(--border) 75%, transparent);
+  border-radius: 12px;
+}
+
+.mi-card--focus {
+  border-color: color-mix(in oklab, var(--accent-primary) 55%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--accent-primary) 22%, transparent);
+}
+
+.mi-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.mi-card__title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.mi-card__title svg {
+  width: 14px;
+  height: 14px;
+  color: var(--accent-primary);
+}
+
+.mi-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  align-items: start;
+}
+
+.mi-row--name-ver {
+  grid-template-columns: minmax(0, 2fr) minmax(110px, 1fr);
+}
+
+.mi-map-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mi-authors {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mi-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 
 .mi-field__head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 
@@ -151,7 +229,7 @@
 .mi-input {
   box-sizing: border-box;
   width: 100%;
-  height: 32px;
+  height: 30px;
   padding: 0 10px;
   font-family: var(--font-sans);
   font-size: 12.5px;
@@ -162,7 +240,7 @@
   transition: border-color var(--ux-fast), background var(--ux-fast), box-shadow var(--ux-fast);
 }
 
-.mi-input--short { max-width: 200px; }
+.mi-input--short { max-width: 220px; }
 
 .mi-input::placeholder { color: color-mix(in oklab, var(--text-muted) 80%, transparent); }
 
@@ -175,12 +253,12 @@
   box-shadow: 0 0 0 3px color-mix(in oklab, var(--accent-primary) 16%, transparent);
 }
 
-.mi-textarea { height: auto; padding: 8px 10px; line-height: 1.55; resize: vertical; }
+.mi-textarea { height: auto; padding: 8px 10px; line-height: 1.5; resize: vertical; }
 
 .mi-static {
   display: flex;
   align-items: center;
-  height: 32px;
+  height: 30px;
   padding: 0 10px;
   font-family: var(--font-mono);
   font-size: 12px;
@@ -188,9 +266,14 @@
   background: color-mix(in oklab, var(--bg-primary) 22%, transparent);
   border: 1px dashed color-mix(in oklab, var(--border) 70%, transparent);
   border-radius: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .mi-empty { padding: 10px 0; font-size: 12px; line-height: 1.55; color: var(--text-muted); }
+
+.mi-empty--compact { padding: 2px 0; }
 
 .mi-author { display: grid; grid-template-columns: 2fr 1fr 30px; gap: 6px; align-items: center; }
 
@@ -335,7 +418,7 @@
 
 .cc-preset__toggles {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 6px;
 }
 
@@ -635,8 +718,8 @@
 }
 
 .mi-inline__workspace {
-  display: grid;
-  grid-template-columns: 170px minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   flex: 1;
   min-height: 0;
 }

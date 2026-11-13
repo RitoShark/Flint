@@ -1,9 +1,9 @@
 import { Button } from '../ui/Button';
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { createPortal } from 'react-dom';
 import { useModalStore } from '../../lib/stores';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
-import { MOD_INFO_SECTIONS, ModInfoForm, type ModInfoSection } from './modinfo/ModInfoForm';
+import { ModInfoForm, type ModInfoSection } from './modinfo/ModInfoForm';
 import { useModInfo } from './modinfo/useModInfo';
 
 const Icon: React.FC<{ name: Parameters<typeof getIcon>[0]; className?: string }> = ({ name, className }) => (
@@ -20,14 +20,7 @@ export const ModConfigEditorModal: React.FC = () => {
     const filePath = opts?.filePath ?? null;
     const initialSection = opts?.initialSection;
 
-    const [section, setSection] = useState<ModInfoSection>('details');
     const { draft, slug, dirty, saving, update, save } = useModInfo(filePath, isVisible, closeModal);
-
-    useEffect(() => {
-        if (isVisible) {
-            setSection(initialSection ?? 'details');
-        }
-    }, [isVisible, initialSection, filePath]);
 
     if (!isVisible) return null;
 
@@ -51,26 +44,16 @@ export const ModConfigEditorModal: React.FC = () => {
                 </div>
 
                 <div className="dl-modal__body">
-                    <nav className="mi-nav" role="tablist" aria-orientation="vertical">
-                        {MOD_INFO_SECTIONS.map((entry) => (
-                            <button
-                                key={entry.id}
-                                role="tab"
-                                aria-selected={section === entry.id}
-                                className={`mi-nav__item${section === entry.id ? ' is-active' : ''}`}
-                                onClick={() => setSection(entry.id)}
-                            >
-                                <Icon name={entry.icon} className="mi-nav__icon" />
-                                <span className="mi-nav__label">{entry.label}</span>
-                            </button>
-                        ))}
-                    </nav>
-
-                    <div className="mi-body" role="tabpanel">
+                    <div className="mi-body">
                         {draft ? (
-                            <ModInfoForm section={section} draft={draft} slug={slug} onChange={update} />
+                            <ModInfoForm
+                                focusSection={initialSection}
+                                draft={draft}
+                                slug={slug}
+                                onChange={update}
+                            />
                         ) : (
-                            <div className="mi-empty">Loading project info…</div>
+                            <div className="mi-empty" style={{ padding: '18px 22px' }}>Loading project info…</div>
                         )}
                     </div>
                 </div>

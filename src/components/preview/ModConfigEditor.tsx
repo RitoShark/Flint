@@ -1,10 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { Button } from '../ui/Button';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
-import { MOD_INFO_SECTIONS, ModInfoForm, type ModInfoSection } from '../modals/modinfo/ModInfoForm';
+import { ModInfoForm } from '../modals/modinfo/ModInfoForm';
 import { useModInfo } from '../modals/modinfo/useModInfo';
-
-type EditorTab = ModInfoSection | 'json';
 
 const Icon: React.FC<{ name: Parameters<typeof getIcon>[0]; className?: string }> = ({ name, className }) => (
     <span className={className} dangerouslySetInnerHTML={{ __html: getIcon(name) }} />
@@ -15,7 +13,7 @@ interface ModConfigEditorProps {
 }
 
 export const ModConfigEditor: React.FC<ModConfigEditorProps> = ({ filePath }) => {
-    const [tab, setTab] = useState<EditorTab>('details');
+    const [showRawJson, setShowRawJson] = useState(false);
     const { draft, rawJson, slug, dirty, saving, update, save } = useModInfo(filePath, true, () => {});
 
     useEffect(() => {
@@ -48,15 +46,13 @@ export const ModConfigEditor: React.FC<ModConfigEditorProps> = ({ filePath }) =>
                 </div>
                 <div className="mi-inline__actions">
                     {dirty && <span className="mi-dirty">Unsaved</span>}
-                    {tab !== 'license' && (
-                        <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => setTab('license')}
-                        >
-                            Set License…
-                        </Button>
-                    )}
+                    <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => setShowRawJson((v) => !v)}
+                    >
+                        {showRawJson ? 'Visual Editor' : 'Raw JSON'}
+                    </Button>
                     <Button
                         variant="primary"
                         size="sm"
@@ -69,38 +65,12 @@ export const ModConfigEditor: React.FC<ModConfigEditorProps> = ({ filePath }) =>
             </div>
 
             <div className="mi-inline__workspace">
-                <nav className="mi-nav" role="tablist" aria-orientation="vertical">
-                    {MOD_INFO_SECTIONS.map((entry) => (
-                        <button
-                            key={entry.id}
-                            type="button"
-                            role="tab"
-                            aria-selected={tab === entry.id}
-                            className={`mi-nav__item${tab === entry.id ? ' is-active' : ''}`}
-                            onClick={() => setTab(entry.id)}
-                        >
-                            <Icon name={entry.icon} className="mi-nav__icon" />
-                            <span className="mi-nav__label">{entry.label}</span>
-                        </button>
-                    ))}
-                    <button
-                        type="button"
-                        role="tab"
-                        aria-selected={tab === 'json'}
-                        className={`mi-nav__item${tab === 'json' ? ' is-active' : ''}`}
-                        onClick={() => setTab('json')}
-                    >
-                        <Icon name="code" className="mi-nav__icon" />
-                        <span className="mi-nav__label">Raw JSON</span>
-                    </button>
-                </nav>
-
-                <div className="mi-body" role="tabpanel">
+                <div className="mi-body">
                     {!draft ? (
                         <div className="mi-pane">
                             <div className="mi-empty">Loading mod.config.json…</div>
                         </div>
-                    ) : tab === 'json' ? (
+                    ) : showRawJson ? (
                         <div className="mi-pane mi-pane--wide">
                             <div className="mi-field">
                                 <span className="mi-field__label">mod.config.json Preview</span>
@@ -108,11 +78,10 @@ export const ModConfigEditor: React.FC<ModConfigEditorProps> = ({ filePath }) =>
                             </div>
                         </div>
                     ) : (
-                        <ModInfoForm section={tab} draft={draft} slug={slug} onChange={update} />
+                        <ModInfoForm draft={draft} slug={slug} onChange={update} />
                     )}
                 </div>
             </div>
         </div>
     );
 };
-
