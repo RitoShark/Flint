@@ -12,7 +12,6 @@
 //!
 //! Notification is triggered natively via shell32.dll SHChangeNotify without shelling out.
 
-use flint_core::path_slash::to_slash;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
@@ -112,7 +111,10 @@ pub struct AssocResult {
 #[cfg(target_os = "windows")]
 fn current_exe_string() -> Result<String, String> {
     let exe = std::env::current_exe().map_err(|e| format!("current_exe: {}", e))?;
-    Ok(to_slash(&exe))
+    // Registry commands must use native backslashes; Explorer can fail to launch
+    // a forward-slash image path ("Windows cannot access the specified path").
+    let s = exe.to_string_lossy().replace('/', "\\");
+    Ok(s.strip_prefix(r"\\?\").map(str::to_owned).unwrap_or(s))
 }
 
 #[cfg(target_os = "windows")]
@@ -144,6 +146,20 @@ pub async fn register_file_associations() -> Result<AssocResult, String> {
     {
         use winreg::enums::*;
         use winreg::RegKey;
+
+        // A dev build's exe loads the Vite devUrl, so with no dev server running
+        // a double-click yields a dead window ("can't open files"). Never write
+        // such a path into the registry unless explicitly overridden.
+        if cfg!(debug_assertions) && std::env::var_os("FLINT_ALLOW_DEBUG_ASSOC").is_none() {
+            return Ok(AssocResult {
+                touched: vec![],
+                errors: vec![
+                    "Skipped: this is a debug/dev build, whose exe needs the dev server to run. \
+                     Register from an installed/release build (or set FLINT_ALLOW_DEBUG_ASSOC=1)."
+                        .into(),
+                ],
+            });
+        }
 
         let exe = current_exe_string()?;
         let cmd_value = format!("\"{}\" \"%1\"", exe);
