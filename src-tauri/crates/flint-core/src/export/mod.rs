@@ -3,9 +3,12 @@ use std::path::{Path, PathBuf};
 
 /// Mod-package container types, re-exported so callers build archives through
 /// this module rather than depending on the packaging crate directly.
-pub use ltk_modpkg::builder::{ModpkgBuilder, ModpkgChunkBuilder, ModpkgLayerBuilder};
+pub use ltk_modpkg::builder::{
+    ModpkgBuilder, ModpkgBuilderError, ModpkgChunkBuilder, ModpkgLayerBuilder,
+};
 pub use ltk_modpkg::{
-    Modpkg, ModpkgAuthor, ModpkgCompression, ModpkgLayerMetadata, ModpkgLicense, ModpkgMetadata,
+    ChunkKey, LayerHash, LayerIndex, Modpkg, ModpkgAuthor, ModpkgChunk, ModpkgCompression,
+    ModpkgLayerMetadata, ModpkgLicense, ModpkgMetadata, PathHash, WadIndex, WadNameHash,
 };
 
 /// `_meta_/` chunks the modpkg builder rewrites itself; every OTHER `_meta_/`
@@ -30,13 +33,9 @@ pub fn split_wad_prefix(relative_path: &str) -> (Option<String>, String) {
 /// The WAD a mounted chunk belongs to, or `None` when it carries no association.
 pub fn chunk_wad_name<R: std::io::Read + std::io::Seek>(
     modpkg: &Modpkg<R>,
-    wad_index: u32,
+    wad_index: WadIndex,
 ) -> Option<String> {
-    modpkg
-        .wads_indices
-        .get(wad_index as usize)
-        .and_then(|hash| modpkg.wads.get(hash))
-        .cloned()
+    modpkg.wad_name_for_index(wad_index).map(str::to_owned)
 }
 
 fn is_unresolved_hash(path: &str) -> bool {

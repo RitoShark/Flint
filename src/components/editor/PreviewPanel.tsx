@@ -18,6 +18,7 @@ import { TroybinViewer } from '../preview/TroybinViewer';
 import { InibinEditor } from '../preview/InibinEditor';
 import { StringTableEditor } from '../preview/StringTableEditor';
 import { ManifestViewer } from '../preview/ManifestViewer';
+import { ModConfigEditor } from '../preview/ModConfigEditor';
 
 interface FileInfo {
     path: string;
@@ -446,6 +447,10 @@ export const PreviewPanel: React.FC = () => {
             fileInfo.extension === 'ini' ||
             fileInfo.extension === 'preload'
         ) {
+            const normalizedSelected = (selectedFile || '').replace(/\\/g, '/').toLowerCase();
+            if (normalizedSelected === 'mod.config.json' || normalizedSelected.endsWith('/mod.config.json')) {
+                return <ModConfigEditor key={filePath} filePath={filePath} />;
+            }
             return <TextPreview key={filePath} filePath={filePath} />;
         }
 

@@ -2,14 +2,17 @@ import { Button } from '../../ui/Button';
 import React, { useState } from 'react';
 import { getIcon } from '../../../lib/ui-helpers/fileIcons';
 import {
-    COMMON_LICENSES,
     WELL_KNOWN_MAPS,
     WELL_KNOWN_TAGS,
     toggleValue,
     type ModInfoDraft,
 } from '../../../lib/editor/modInfo';
 import {
+    CC_LICENSE_CATALOG,
     CcLicensePresetPicker,
+    OPEN_SOURCE_LICENSE_CATALOG,
+    formatLicenseFileText,
+    lookupLicenseDetails,
     parseCcLicenseSpdx,
 } from '../../../lib/editor/ccLicense';
 
@@ -259,73 +262,197 @@ export const ModInfoForm: React.FC<Props> = ({ section, draft, slug, onChange })
         );
     }
 
+    const parsedCc = draft.licenseKind === 'spdx' ? parseCcLicenseSpdx(draft.licenseSpdx) : null;
+    const nonCcDetails =
+        draft.licenseKind === 'spdx' && !parsedCc ? lookupLicenseDetails(draft.licenseSpdx) : null;
+    const isAllRightsReserved =
+        draft.licenseKind === 'custom' && draft.licenseName.trim().toLowerCase() === 'all rights reserved';
+
+    const activeLicenseId =
+        draft.licenseKind === 'spdx'
+            ? draft.licenseSpdx.trim()
+            : draft.licenseKind === 'custom'
+                ? draft.licenseName.trim()
+                : '';
+
+    const licensePreviewText = activeLicenseId
+        ? formatLicenseFileText({
+              spdx: activeLicenseId,
+              url: draft.licenseKind === 'custom' ? draft.licenseUrl.trim() : undefined,
+              author: draft.authors.map((a) => a.name.trim()).filter(Boolean).join(', '),
+              year: new Date().getFullYear(),
+              modName: draft.displayName.trim() || slug,
+          })
+        : '';
+
     return (
         <div className="mi-pane">
             <div className="mi-field">
-                <span className="mi-field__label">License</span>
+                <span className="mi-field__label">License Mode</span>
                 <div className="mi-chips">
-                    {(['none', 'spdx', 'custom'] as const).map((kind) => (
+                    <button
+                        type="button"
+                        className={`mi-chip${draft.licenseKind === 'none' ? ' mi-chip--on' : ''}`}
+                        onClick={() => onChange({ licenseKind: 'none' })}
+                    >
+                        Unspecified
+                    </button>
+                    <button
+                        type="button"
+                        className={`mi-chip${draft.licenseKind === 'spdx' ? ' mi-chip--on' : ''}`}
+                        onClick={() =>
+                            onChange({
+                                licenseKind: 'spdx',
+                                licenseSpdx: draft.licenseSpdx.trim() || 'CC-BY-4.0',
+                            })
+                        }
+                    >
+                        Standard / CC / SPDX
+                    </button>
+                    <button
+                        type="button"
+                        className={`mi-chip${isAllRightsReserved ? ' mi-chip--on' : ''}`}
+                        onClick={() =>
+                            onChange({
+                                licenseKind: 'custom',
+                                licenseName: 'All Rights Reserved',
+                                licenseUrl: '',
+                            })
+                        }
+                    >
+                        All Rights Reserved
+                    </button>
+                    <button
+                        type="button"
+                        className={`mi-chip${draft.licenseKind === 'custom' && !isAllRightsReserved ? ' mi-chip--on' : ''}`}
+                        onClick={() =>
+                            onChange({
+                                licenseKind: 'custom',
+                                licenseName: isAllRightsReserved ? '' : draft.licenseName,
+                            })
+                        }
+                    >
+                        Custom Terms
+                    </button>
+                </div>
+            </div>
+
+            <div className="mi-field">
+                <span className="mi-field__label">Creative Commons Builder (Credits & Permissions)</span>
+                <CcLicensePresetPicker
+                    value={
+                        parsedCc ?? {
+                            giveCredit: true,
+                            noEdits: false,
+                            noCommercial: false,
+                            shareAlike: false,
+                        }
+                    }
+                    onChange={(_state, resolved) => onChange({ licenseKind: 'spdx', licenseSpdx: resolved.spdx })}
+                />
+            </div>
+
+            <div className="mi-field">
+                <span className="mi-field__label">Creative Commons Presets</span>
+                <div className="mi-chips">
+                    {Object.values(CC_LICENSE_CATALOG).map((item) => (
                         <button
-                            key={kind}
-                            className={`mi-chip${draft.licenseKind === kind ? ' mi-chip--on' : ''}`}
-                            onClick={() => onChange({ licenseKind: kind })}
+                            key={item.spdx}
+                            type="button"
+                            className={`mi-chip${draft.licenseKind === 'spdx' && draft.licenseSpdx === item.spdx ? ' mi-chip--on' : ''}`}
+                            title={item.fullTitle}
+                            onClick={() => onChange({ licenseKind: 'spdx', licenseSpdx: item.spdx })}
                         >
-                            {kind === 'none' ? 'Unspecified' : kind === 'spdx' ? 'SPDX id' : 'Custom'}
+                            {item.label}
                         </button>
                     ))}
                 </div>
             </div>
 
             <div className="mi-field">
-                <span className="mi-field__label">Creative Commons Preset</span>
-                <CcLicensePresetPicker
-                    value={parseCcLicenseSpdx(draft.licenseSpdx) ?? { noEdits: false, noCommercial: false }}
-                    onChange={(_state, resolved) => onChange({ licenseKind: 'spdx', licenseSpdx: resolved.spdx })}
-                />
+                <span className="mi-field__label">Open Source & Code Presets</span>
+                <div className="mi-chips">
+                    {Object.values(OPEN_SOURCE_LICENSE_CATALOG).map((item) => (
+                        <button
+                            key={item.spdx}
+                            type="button"
+                            className={`mi-chip${draft.licenseKind === 'spdx' && draft.licenseSpdx === item.spdx ? ' mi-chip--on' : ''}`}
+                            title={item.fullTitle}
+                            onClick={() => onChange({ licenseKind: 'spdx', licenseSpdx: item.spdx })}
+                        >
+                            {item.label}
+                        </button>
+                    ))}
+                </div>
             </div>
 
-            {draft.licenseKind === 'spdx' && (
-                <>
-                    <label className="mi-field">
-                        <span className="mi-field__label">Identifier</span>
-                        <input
-                            className="mi-input mi-input--short"
-                            value={draft.licenseSpdx}
-                            placeholder="MIT"
-                            spellCheck={false}
-                            onChange={(e) => onChange({ licenseSpdx: e.target.value })}
-                        />
-                    </label>
-                    <div className="mi-field">
-                        <span className="mi-field__label">Common</span>
-                        <div className="mi-chips">
-                            {COMMON_LICENSES.map((id) => (
-                                <button
-                                    key={id}
-                                    className={`mi-chip${draft.licenseSpdx === id ? ' mi-chip--on' : ''}`}
-                                    onClick={() => onChange({ licenseSpdx: id })}
-                                >
-                                    {id}
-                                </button>
-                            ))}
+            {nonCcDetails && (
+                <div className="cc-preset">
+                    <div className="cc-preset__summary">
+                        <span className="cc-preset__badge">{nonCcDetails.spdx}</span>
+                        <span className="cc-preset__summary-text">{nonCcDetails.summary}</span>
+                    </div>
+                    <div className="cc-preset__breakdown">
+                        <div className="cc-preset__col">
+                            <span className="cc-preset__col-title cc-preset__col-title--can">Can do</span>
+                            <div className="cc-preset__tags">
+                                {nonCcDetails.permissions.map((item) => (
+                                    <span key={item} className="cc-preset__tag cc-preset__tag--can">
+                                        {item}
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="cc-preset__col">
+                            <span className="cc-preset__col-title cc-preset__col-title--must">Must do (Credits)</span>
+                            <div className="cc-preset__tags">
+                                {nonCcDetails.conditions.map((item) => (
+                                    <span key={item} className="cc-preset__tag cc-preset__tag--must">
+                                        {item}
+                                    </span>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="cc-preset__col">
+                            <span className="cc-preset__col-title cc-preset__col-title--cannot">Cannot do</span>
+                            <div className="cc-preset__tags">
+                                {nonCcDetails.limitations.map((item) => (
+                                    <span key={item} className="cc-preset__tag cc-preset__tag--cannot">
+                                        {item}
+                                    </span>
+                                ))}
+                            </div>
                         </div>
                     </div>
-                </>
+                </div>
+            )}
+
+            {draft.licenseKind === 'spdx' && (
+                <label className="mi-field">
+                    <span className="mi-field__label">SPDX Identifier</span>
+                    <input
+                        className="mi-input mi-input--short"
+                        value={draft.licenseSpdx}
+                        placeholder="CC-BY-NC-4.0"
+                        spellCheck={false}
+                        onChange={(e) => onChange({ licenseSpdx: e.target.value })}
+                    />
+                </label>
             )}
 
             {draft.licenseKind === 'custom' && (
                 <>
                     <label className="mi-field">
-                        <span className="mi-field__label">Name</span>
+                        <span className="mi-field__label">License Name</span>
                         <input
                             className="mi-input"
                             value={draft.licenseName}
-                            placeholder="My terms"
+                            placeholder="All Rights Reserved / Custom Mod License"
                             onChange={(e) => onChange({ licenseName: e.target.value })}
                         />
                     </label>
                     <label className="mi-field">
-                        <span className="mi-field__label">URL</span>
+                        <span className="mi-field__label">License URL (optional)</span>
                         <input
                             className="mi-input"
                             value={draft.licenseUrl}
@@ -339,7 +466,17 @@ export const ModInfoForm: React.FC<Props> = ({ section, draft, slug, onChange })
 
             {draft.licenseKind === 'none' && (
                 <div className="mi-empty">
-                    Without a license nobody knows what they may do with the mod. An SPDX id is the short way to say it.
+                    Without a license nobody knows what they may do with the mod. Pick a Creative Commons or open-source preset above to generate a LICENSE file in the project root.
+                </div>
+            )}
+
+            {licensePreviewText && (
+                <div className="mi-field">
+                    <span className="mi-field__label">Generated LICENSE File Preview</span>
+                    <pre className="mi-license-preview">{licensePreviewText}</pre>
+                    <span className="mi-field__hint">
+                        Written to LICENSE in the project root and shipped inside exported .modpkg packages.
+                    </span>
                 </div>
             )}
         </div>

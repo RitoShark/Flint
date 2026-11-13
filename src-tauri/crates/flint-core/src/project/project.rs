@@ -723,6 +723,17 @@ pub fn format_license_file_text(
                 "You may share and adapt the material for any purpose, even commercially.",
             ],
         )),
+        "CC-BY-SA-4.0" => Some((
+            "CC-BY-SA-4.0",
+            "CC BY-SA 4.0",
+            "Creative Commons Attribution-ShareAlike 4.0 International",
+            "https://creativecommons.org/licenses/by-sa/4.0/",
+            &[
+                "You must give appropriate credit, provide a link to the license, and indicate if changes were made.",
+                "If you remix, transform, or build upon the material, you must distribute your contributions under the same license as the original.",
+                "You may share and adapt the material for any purpose, even commercially.",
+            ],
+        )),
         "CC-BY-NC-4.0" => Some((
             "CC-BY-NC-4.0",
             "CC BY-NC 4.0",
@@ -732,6 +743,17 @@ pub fn format_license_file_text(
                 "You must give appropriate credit, provide a link to the license, and indicate if changes were made.",
                 "You may not use the material for commercial purposes.",
                 "You may share and adapt the material for non-commercial purposes.",
+            ],
+        )),
+        "CC-BY-NC-SA-4.0" => Some((
+            "CC-BY-NC-SA-4.0",
+            "CC BY-NC-SA 4.0",
+            "Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International",
+            "https://creativecommons.org/licenses/by-nc-sa/4.0/",
+            &[
+                "You must give appropriate credit, provide a link to the license, and indicate if changes were made.",
+                "You may not use the material for commercial purposes.",
+                "If you remix, transform, or build upon the material, you must distribute your contributions under the same license as the original.",
             ],
         )),
         "CC-BY-ND-4.0" => Some((
@@ -754,6 +776,16 @@ pub fn format_license_file_text(
                 "You must give appropriate credit, provide a link to the license, and indicate if changes were made.",
                 "You may not use the material for commercial purposes.",
                 "If you remix, transform, or build upon the material, you may not distribute the modified material.",
+            ],
+        )),
+        "CC0-1.0" => Some((
+            "CC0-1.0",
+            "CC0 1.0",
+            "Creative Commons Zero v1.0 Universal",
+            "https://creativecommons.org/publicdomain/zero/1.0/",
+            &[
+                "The creator has waived all copyright and related or neighboring rights to this work.",
+                "You can copy, modify, distribute, and perform the work, even for commercial purposes, all without asking permission.",
             ],
         )),
         _ => None,

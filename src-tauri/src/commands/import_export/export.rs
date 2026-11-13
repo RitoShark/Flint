@@ -577,11 +577,10 @@ fn export_with_ltk_modpkg(
     output_path: &Path,
     mod_project: &ModProject,
 ) -> Result<(usize, u64), String> {
-    use flint_core::export::{ModpkgBuilder, ModpkgChunkBuilder, ModpkgLayerBuilder};
     use flint_core::export::{
-        ModpkgAuthor, ModpkgCompression, ModpkgLayerMetadata, ModpkgLicense, ModpkgMetadata,
+        ModpkgAuthor, ModpkgBuilder, ModpkgBuilderError, ModpkgChunkBuilder, ModpkgLayerBuilder,
+        ModpkgLayerMetadata, ModpkgLicense, ModpkgMetadata,
     };
-    use std::io::Write;
 
     let content = project_path.join("content");
 
@@ -648,12 +647,13 @@ fn export_with_ltk_modpkg(
             },
             Some(ModProjectLicense::Custom { name, url }) => ModpkgLicense::Custom {
                 name: name.clone(),
-                url: url.clone(),
+                url: Some(url.clone()).filter(|u| !u.is_empty()),
             },
         },
         layers: layers
             .iter()
             .map(|(name, priority, description)| ModpkgLayerMetadata {
+                game_data: None,
                 name: name.clone(),
                 display_name: None,
                 priority: *priority,
@@ -679,32 +679,37 @@ fn export_with_ltk_modpkg(
         ..Default::default()
     };
 
-    let mut builder = ModpkgBuilder::default()
-        .with_metadata(metadata)
-        .map_err(|e| format!("Failed to set metadata: {}", e))?;
+    let mut builder = ModpkgBuilder::default().with_metadata(metadata);
 
     for (name, priority, _) in &layers {
-        builder = builder.with_layer(if name == "base" {
+        let layer_builder = if name == "base" {
             ModpkgLayerBuilder::base()
         } else {
-            ModpkgLayerBuilder::new(name).with_priority(*priority)
-        });
+            ModpkgLayerBuilder::new(name)
+                .map_err(|e| format!("Invalid layer name '{}': {}", name, e))?
+                .with_priority(*priority)
+        };
+        builder = builder.with_layer(layer_builder);
     }
 
     let thumbnail_path = project_path.join("thumbnail.webp");
     if thumbnail_path.exists() {
         if let Ok(thumb_bytes) = std::fs::read(&thumbnail_path) {
-            builder = builder
-                .with_thumbnail(thumb_bytes)
-                .map_err(|e| format!("Failed to set thumbnail: {}", e))?;
+            builder = builder.with_thumbnail(thumb_bytes);
             tracing::info!("Embedded thumbnail ({} bytes)", thumbnail_path.metadata().map(|m| m.len()).unwrap_or(0));
+        }
+    }
+
+    let license_path = project_path.join("LICENSE");
+    if license_path.is_file() {
+        if let Ok(license_bytes) = std::fs::read(&license_path) {
+            builder = builder.with_license_text(license_bytes);
         }
     }
 
     for ((path, layer), (wad, file_path)) in &file_paths {
         let mut chunk = ModpkgChunkBuilder::new()
             .with_path(path)
-            .map_err(|e| format!("Failed to set chunk path: {}", e))?
             .with_layer(layer)
             .with_compression(chunk_compression(file_path));
         if let Some(wad) = wad {
@@ -713,34 +718,28 @@ fn export_with_ltk_modpkg(
         builder = builder.with_chunk(chunk);
     }
 
-    let license_path = project_path.join("LICENSE");
-    if license_path.is_file() {
-        let chunk = ModpkgChunkBuilder::new()
-            .with_path("_meta_/LICENSE")
-            .map_err(|e| format!("Failed to set LICENSE chunk path: {}", e))?
-            .with_layer("")
-            .with_compression(ModpkgCompression::None);
-        file_paths.insert(
-            ("_meta_/license".to_string(), String::new()),
-            (None, license_path),
-        );
-        builder = builder.with_chunk(chunk);
-    }
-
     let mut output_file = File::create(output_path)
         .map_err(|e| format!("Failed to create output file: {}", e))?;
 
-    builder.build_to_writer(&mut output_file, |chunk_builder, cursor| {
-        let key = (chunk_builder.path.clone(), chunk_builder.layer().to_string());
-        if let Some((_, file_path)) = file_paths.get(&key) {
-            let data = std::fs::read(file_path).map_err(|e| {
-                std::io::Error::other(format!("Failed to read {}: {}", file_path.display(), e))
-            })?;
-            cursor.write_all(&data)?;
-        }
-        Ok(())
-    })
-    .map_err(|e| format!("Failed to build modpkg: {}", e))?;
+    builder
+        .build_to_writer(&mut output_file, |chunk_builder| {
+            let key = (
+                chunk_builder.path().to_string(),
+                chunk_builder.layer().to_string(),
+            );
+            if let Some((_, file_path)) = file_paths.get(&key) {
+                std::fs::read(file_path).map_err(|e| {
+                    ModpkgBuilderError::Io(std::io::Error::other(format!(
+                        "Failed to read {}: {}",
+                        file_path.display(),
+                        e
+                    )))
+                })
+            } else {
+                Ok(Vec::new())
+            }
+        })
+        .map_err(|e| format!("Failed to build modpkg: {}", e))?;
 
     let total_size = std::fs::metadata(output_path)
         .map(|m| m.len())
@@ -818,11 +817,11 @@ mod tests {
 
         let pkg = mount(&out);
         assert_eq!(
-            pkg.wads.values().collect::<Vec<_>>(),
+            pkg.wads().values().collect::<Vec<_>>(),
             vec!["aatrox.wad.client"]
         );
         let path = pkg
-            .chunk_paths
+            .chunk_paths()
             .values()
             .find(|p| !p.starts_with("_meta_/"))
             .unwrap();
@@ -830,7 +829,7 @@ mod tests {
 
         // The chunk hash must be the game's WAD chunk hash for that path.
         let expected = flint_core::hash::wad_chunk_hash("data/characters/aatrox/skin6.bin");
-        assert!(pkg.chunks.keys().any(|(path_hash, _)| *path_hash == expected));
+        assert!(pkg.chunks().keys().any(|k| k.path.value() == expected));
     }
 
     #[test]
@@ -850,19 +849,19 @@ mod tests {
         assert_eq!(count, 2);
 
         let mut pkg = mount(&out);
-        let mut names: Vec<&String> = pkg.layers.values().map(|l| &l.name).collect();
+        let mut names: Vec<&String> = pkg.layers().values().map(|l| &l.name).collect();
         names.sort();
         assert_eq!(names, vec!["base", "chroma"]);
 
         let hash = flint_core::hash::wad_chunk_hash("assets/t.tex");
         let mut seen: Vec<Vec<u8>> = pkg
-            .chunks
+            .chunks()
             .keys()
-            .filter(|(path_hash, _)| *path_hash == hash)
+            .filter(|k| k.path.value() == hash)
             .copied()
             .collect::<Vec<_>>()
             .into_iter()
-            .map(|(p, l)| pkg.load_chunk_decompressed_by_hash(p, l).unwrap().to_vec())
+            .map(|k| pkg.load_chunk_decompressed(k).unwrap().to_vec())
             .collect();
         seen.sort();
         assert_eq!(seen, vec![b"base-bytes".to_vec(), b"chroma-bytes".to_vec()]);
@@ -878,9 +877,9 @@ mod tests {
         export_with_ltk_modpkg(root, &out, &project(r#"{"name": "base", "priority": 0}"#)).unwrap();
 
         let pkg = mount(&out);
-        assert!(pkg.wads.is_empty());
+        assert!(pkg.wads().is_empty());
         assert!(pkg
-            .chunk_paths
+            .chunk_paths()
             .values()
             .any(|p| p == "data/loose.bin"));
     }
@@ -899,9 +898,9 @@ mod tests {
         let pkg = mount(&out);
         let compression = |path: &str| {
             let hash = flint_core::hash::wad_chunk_hash(path);
-            pkg.chunks
+            pkg.chunks()
                 .iter()
-                .find(|((p, _), _)| *p == hash)
+                .find(|(k, _)| k.path.value() == hash)
                 .map(|(_, c)| c.compression)
                 .unwrap()
         };
@@ -933,19 +932,7 @@ mod tests {
             }
         );
 
-        let (path_hash, layer_hash) = pkg
-            .chunks
-            .keys()
-            .find(|(ph, _)| {
-                pkg.chunk_paths
-                    .get(ph)
-                    .is_some_and(|p| p == "_meta_/license")
-            })
-            .copied()
-            .unwrap();
-        let license_bytes = pkg
-            .load_chunk_decompressed_by_hash(path_hash, layer_hash)
-            .unwrap();
-        assert_eq!(&*license_bytes, b"Copyright 2026 SirDexal - CC BY 4.0");
+        let license_bytes = pkg.load_license_text().unwrap();
+        assert_eq!(license_bytes, b"Copyright 2026 SirDexal - CC BY 4.0");
     }
 }

@@ -21,8 +21,8 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use flint_core::export::{
-    Modpkg, ModpkgAuthor, ModpkgBuilder, ModpkgChunkBuilder, ModpkgCompression,
-    ModpkgLayerBuilder, ModpkgMetadata, REGENERATED_META,
+    ChunkKey as RawChunkKey, LayerHash, Modpkg, ModpkgAuthor, ModpkgBuilder, ModpkgChunkBuilder,
+    ModpkgCompression, ModpkgLayerBuilder, ModpkgMetadata, REGENERATED_META,
 };
 
 /// One staged change to a chunk. Held until save, mirroring `WadEditDelta`.
@@ -130,7 +130,7 @@ fn mount(path: &str) -> Result<Modpkg<BufReader<std::fs::File>>, String> {
 /// Content chunk paths (excluding internal `_meta_/` entries), sorted for a stable list.
 fn content_paths(modpkg: &Modpkg<BufReader<std::fs::File>>) -> Vec<String> {
     let mut paths: Vec<String> = modpkg
-        .chunk_paths
+        .chunk_paths()
         .values()
         .filter(|p| !p.starts_with("_meta_/"))
         .cloned()
@@ -162,8 +162,8 @@ pub async fn open_modpkg_session(path: String) -> Result<ModpkgSession, String> 
         };
 
         // More than one distinct layer means a rewrite would flatten the package.
-        let layers: std::collections::HashSet<u64> =
-            modpkg.chunks.keys().map(|(_, layer)| *layer).collect();
+        let layers: std::collections::HashSet<LayerHash> =
+            modpkg.chunks().keys().map(|k| k.layer).collect();
         let multi_layer = layers.len() > 1;
         if multi_layer {
             tracing::info!("modpkg {} uses {} layers", path, layers.len());
@@ -240,16 +240,16 @@ pub async fn list_modpkg_chunks(session_id: String) -> Result<Vec<ModpkgChunkInf
 
         // A path can exist on several layers, so each (path, layer) pair is its
         // own chunk rather than a duplicate to be filtered out.
-        for (path_hash, layer_hash) in modpkg.chunks.keys().copied().collect::<Vec<_>>() {
-            let Some(path) = modpkg.chunk_paths.get(&path_hash).cloned() else {
+        for raw_key in modpkg.chunks().keys().copied().collect::<Vec<_>>() {
+            let Some(path) = modpkg.chunk_paths().get(&raw_key.path).cloned() else {
                 continue;
             };
             if path.starts_with("_meta_/") {
                 continue;
             }
             let layer = modpkg
-                .layers
-                .get(&layer_hash)
+                .layers()
+                .get(&raw_key.layer)
                 .map(|l| l.name.clone())
                 .unwrap_or_else(|| DEFAULT_LAYER.to_string());
             let key = ChunkKey { path: path.clone(), layer: layer.clone() };
@@ -267,7 +267,7 @@ pub async fn list_modpkg_chunks(session_id: String) -> Result<Vec<ModpkgChunkInf
                 }),
                 None => {
                     let size = modpkg
-                        .load_chunk_decompressed_by_hash(path_hash, layer_hash)
+                        .load_chunk_decompressed(raw_key)
                         .map(|d| d.len() as u64)
                         .unwrap_or(0);
                     out.push(ModpkgChunkInfo { path, layer, size, dirty: false });
@@ -326,24 +326,24 @@ async fn chunk_bytes(
             tokio::task::spawn_blocking(move || {
                 let mut modpkg = mount(&source.to_string_lossy())?;
                 let found = modpkg
-                    .chunks
+                    .chunks()
                     .keys()
-                    .find(|(ph, lh)| {
-                        modpkg.chunk_paths.get(ph).is_some_and(|p| *p == path)
+                    .find(|k| {
+                        modpkg.chunk_paths().get(&k.path).is_some_and(|p| *p == path)
                             && layer.as_ref().is_none_or(|want| {
-                                modpkg.layers.get(lh).is_some_and(|l| l.name == *want)
+                                modpkg.layers().get(&k.layer).is_some_and(|l| l.name == *want)
                             })
                     })
                     .copied();
-                let (path_hash, layer_hash) =
+                let raw_key =
                     found.ok_or_else(|| format!("Chunk not found: {}", path))?;
                 let layer_name = modpkg
-                    .layers
-                    .get(&layer_hash)
+                    .layers()
+                    .get(&raw_key.layer)
                     .map(|l| l.name.clone())
                     .unwrap_or_else(|| DEFAULT_LAYER.to_string());
                 let data = modpkg
-                    .load_chunk_decompressed_by_hash(path_hash, layer_hash)
+                    .load_chunk_decompressed(raw_key)
                     .map_err(|e| format!("Failed to decompress '{}': {}", path, e))?;
                 Ok((data.to_vec(), layer_name))
             })
@@ -496,7 +496,7 @@ fn save_modpkg(
     // Every layer in the source, so the rebuild can recreate each one with its
     // original name and priority instead of collapsing onto `base`.
     let mut layer_defs: HashMap<String, i32> = modpkg
-        .layers
+        .layers()
         .values()
         .map(|l| (l.name.clone(), l.priority))
         .collect();
@@ -506,11 +506,11 @@ fn save_modpkg(
     // than the two the builder regenerates (info.msgpack, thumbnail.webp) are
     // carried verbatim on their no-layer slot — hashtables and readme from other
     // tools must survive a re-save even though Flint doesn't read them yet.
-    let entries: Vec<(u64, u64, ChunkKey, ModpkgCompression, Option<String>)> = modpkg
-        .chunks
+    let entries: Vec<(RawChunkKey, ChunkKey, ModpkgCompression, Option<String>)> = modpkg
+        .chunks()
         .iter()
-        .filter_map(|((path_hash, layer_hash), chunk)| {
-            let path = modpkg.chunk_paths.get(path_hash)?;
+        .filter_map(|(raw_key, chunk)| {
+            let path = modpkg.chunk_paths().get(&raw_key.path)?;
             if REGENERATED_META.contains(&path.as_str()) {
                 return None;
             }
@@ -518,14 +518,13 @@ fn save_modpkg(
                 String::new()
             } else {
                 modpkg
-                    .layers
-                    .get(layer_hash)
+                    .layers()
+                    .get(&raw_key.layer)
                     .map(|l| l.name.clone())
                     .unwrap_or_else(|| DEFAULT_LAYER.to_string())
             };
             Some((
-                *path_hash,
-                *layer_hash,
+                *raw_key,
                 ChunkKey { path: path.clone(), layer },
                 chunk.compression,
                 flint_core::export::chunk_wad_name(&modpkg, chunk.wad_index),
@@ -536,7 +535,7 @@ fn save_modpkg(
     let mut chunk_bytes: HashMap<ChunkKey, Vec<u8>> = HashMap::new();
     let mut preserved_compression: HashMap<ChunkKey, ModpkgCompression> = HashMap::new();
     let mut preserved_wad: HashMap<ChunkKey, String> = HashMap::new();
-    for (path_hash, layer_hash, key, compression, wad) in &entries {
+    for (raw_key, key, compression, wad) in &entries {
         if chunk_bytes.contains_key(key) {
             continue;
         }
@@ -544,7 +543,7 @@ fn save_modpkg(
             preserved_wad.insert(key.clone(), wad.clone());
         }
         let data = modpkg
-            .load_chunk_decompressed_by_hash(*path_hash, *layer_hash)
+            .load_chunk_decompressed(*raw_key)
             .map_err(|e| format!("Failed to decompress '{}': {}", key.path, e))?;
         chunk_bytes.insert(key.clone(), data.to_vec());
         preserved_compression.insert(key.clone(), *compression);
@@ -553,7 +552,7 @@ fn save_modpkg(
     // Apply staged edits over the chunks read from disk: a Write replaces or adds,
     // a Delete drops that (path, layer) entirely (a rename arrives as both).
     let sole_wad: Option<String> = {
-        let mut names: Vec<&String> = modpkg.wads.values().collect();
+        let mut names: Vec<&String> = modpkg.wads().values().collect();
         names.sort();
         names.dedup();
         match names.as_slice() {
@@ -611,9 +610,7 @@ fn save_modpkg(
         ..Default::default()
     };
 
-    let mut builder = ModpkgBuilder::default()
-        .with_metadata(new_metadata)
-        .map_err(|e| format!("Failed to set metadata: {}", e))?;
+    let mut builder = ModpkgBuilder::default().with_metadata(new_metadata);
 
     // Recreate every layer the package had, with its original priority, so a
     // layered package survives the round-trip. `base` is always present.
@@ -621,23 +618,23 @@ fn save_modpkg(
     let mut layer_names: Vec<(&String, &i32)> = layer_defs.iter().collect();
     layer_names.sort();
     for (name, priority) in layer_names {
-        builder = builder.with_layer(if name == DEFAULT_LAYER {
+        let layer_builder = if name == DEFAULT_LAYER {
             ModpkgLayerBuilder::base()
         } else {
-            ModpkgLayerBuilder::new(name).with_priority(*priority)
-        });
+            ModpkgLayerBuilder::new(name)
+                .map_err(|e| format!("Invalid layer name '{}': {}", name, e))?
+                .with_priority(*priority)
+        };
+        builder = builder.with_layer(layer_builder);
     }
 
     if let Some(thumb) = thumbnail {
-        builder = builder
-            .with_thumbnail(thumb)
-            .map_err(|e| format!("Failed to set thumbnail: {}", e))?;
+        builder = builder.with_thumbnail(thumb);
     }
 
     for key in chunk_bytes.keys() {
         let mut chunk = ModpkgChunkBuilder::new()
             .with_path(&key.path)
-            .map_err(|e| format!("Failed to set chunk path '{}': {}", key.path, e))?
             .with_layer(&key.layer);
         if let Some(compression) = preserved_compression.get(key) {
             chunk = chunk.with_compression(*compression);
@@ -655,15 +652,12 @@ fn save_modpkg(
         let mut tmp_file =
             std::fs::File::create(&tmp).map_err(|e| format!("Failed to create temp file: {}", e))?;
         builder
-            .build_to_writer(&mut tmp_file, |chunk_builder, cursor| {
+            .build_to_writer(&mut tmp_file, |chunk_builder| {
                 let key = ChunkKey {
-                    path: chunk_builder.path.clone(),
+                    path: chunk_builder.path().to_string(),
                     layer: chunk_builder.layer().to_string(),
                 };
-                if let Some(data) = chunk_bytes.get(&key) {
-                    cursor.write_all(data)?;
-                }
-                Ok(())
+                Ok(chunk_bytes.get(&key).cloned().unwrap_or_default())
             })
             .map_err(|e| format!("Failed to build modpkg: {}", e))?;
         tmp_file

@@ -162,7 +162,7 @@ fn read_modpkg_layout(path: &str) -> Result<(String, Vec<ArchiveWadInfo>), Strin
     }))
     .map_err(|e| format!("meta json: {}", e))?;
     let count = modpkg
-        .chunk_paths
+        .chunk_paths()
         .values()
         .filter(|p| !p.starts_with("_meta_/"))
         .count();
@@ -649,7 +649,7 @@ async fn save_modpkg_archive(
         // two the builder regenerates: hashtables and readme from other tools must
         // survive a re-save.
         let mut layer_defs: HashMap<String, i32> = modpkg
-            .layers
+            .layers()
             .values()
             .map(|l| (l.name.clone(), l.priority))
             .collect();
@@ -657,16 +657,15 @@ async fn save_modpkg_archive(
 
         type ChunkKey = (String, String);
         let entries: Vec<(
-            u64,
-            u64,
+            flint_core::export::ChunkKey,
             ChunkKey,
             flint_core::export::ModpkgCompression,
             Option<String>,
         )> = modpkg
-            .chunks
+            .chunks()
             .iter()
-            .filter_map(|((path_hash, layer_hash), chunk)| {
-                let path = modpkg.chunk_paths.get(path_hash)?;
+            .filter_map(|(raw_key, chunk)| {
+                let path = modpkg.chunk_paths().get(&raw_key.path)?;
                 if flint_core::export::REGENERATED_META.contains(&path.as_str()) {
                     return None;
                 }
@@ -674,14 +673,13 @@ async fn save_modpkg_archive(
                     String::new()
                 } else {
                     modpkg
-                        .layers
-                        .get(layer_hash)
+                        .layers()
+                        .get(&raw_key.layer)
                         .map(|l| l.name.clone())
                         .unwrap_or_else(|| "base".to_string())
                 };
                 Some((
-                    *path_hash,
-                    *layer_hash,
+                    *raw_key,
                     (path.clone(), layer),
                     chunk.compression,
                     flint_core::export::chunk_wad_name(&modpkg, chunk.wad_index),
@@ -693,12 +691,12 @@ async fn save_modpkg_archive(
         let mut preserved_compression: HashMap<ChunkKey, flint_core::export::ModpkgCompression> =
             HashMap::new();
         let mut preserved_wad: HashMap<ChunkKey, String> = HashMap::new();
-        for (path_hash, layer_hash, key, compression, wad) in &entries {
+        for (raw_key, key, compression, wad) in &entries {
             if chunk_bytes.contains_key(key) {
                 continue;
             }
             let data = modpkg
-                .load_chunk_decompressed_by_hash(*path_hash, *layer_hash)
+                .load_chunk_decompressed(*raw_key)
                 .map_err(|e| format!("Failed to decompress '{}': {}", key.0, e))?;
             chunk_bytes.insert(key.clone(), data.to_vec());
             preserved_compression.insert(key.clone(), *compression);
@@ -723,31 +721,29 @@ async fn save_modpkg_archive(
             ..Default::default()
         };
 
-        let mut builder = ModpkgBuilder::default()
-            .with_metadata(new_metadata)
-            .map_err(|e| format!("Failed to set metadata: {}", e))?;
+        let mut builder = ModpkgBuilder::default().with_metadata(new_metadata);
 
         let mut layer_names: Vec<(&String, &i32)> = layer_defs.iter().collect();
         layer_names.sort();
         for (name, priority) in layer_names {
-            builder = builder.with_layer(if name == "base" {
+            let layer_builder = if name == "base" {
                 ModpkgLayerBuilder::base()
             } else {
-                ModpkgLayerBuilder::new(name).with_priority(*priority)
-            });
+                ModpkgLayerBuilder::new(name)
+                    .map_err(|e| format!("Invalid layer name '{}': {}", name, e))?
+                    .with_priority(*priority)
+            };
+            builder = builder.with_layer(layer_builder);
         }
 
         if let Some(thumb) = thumbnail {
-            builder = builder
-                .with_thumbnail(thumb)
-                .map_err(|e| format!("Failed to set thumbnail: {}", e))?;
+            builder = builder.with_thumbnail(thumb);
         }
 
         for key in chunk_bytes.keys() {
             let (path, layer) = key;
             let mut chunk = ModpkgChunkBuilder::new()
                 .with_path(path)
-                .map_err(|e| format!("Failed to set chunk path '{}': {}", path, e))?
                 .with_layer(layer);
             if let Some(compression) = preserved_compression.get(key) {
                 chunk = chunk.with_compression(*compression);
@@ -764,15 +760,12 @@ async fn save_modpkg_archive(
             let mut tmp_file = std::fs::File::create(&tmp)
                 .map_err(|e| format!("Failed to create temp file: {}", e))?;
             builder
-                .build_to_writer(&mut tmp_file, |chunk_builder, cursor| {
+                .build_to_writer(&mut tmp_file, |chunk_builder| {
                     let key = (
-                        chunk_builder.path.clone(),
+                        chunk_builder.path().to_string(),
                         chunk_builder.layer().to_string(),
                     );
-                    if let Some(data) = chunk_bytes.get(&key) {
-                        cursor.write_all(data)?;
-                    }
-                    Ok(())
+                    Ok(chunk_bytes.get(&key).cloned().unwrap_or_default())
                 })
                 .map_err(|e| format!("Failed to build modpkg: {}", e))?;
             tmp_file

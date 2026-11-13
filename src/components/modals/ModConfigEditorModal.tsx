@@ -1,5 +1,5 @@
 import { Button } from '../ui/Button';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useModalStore } from '../../lib/stores';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
@@ -16,10 +16,18 @@ export const ModConfigEditorModal: React.FC = () => {
     const modalOptions = useModalStore((s) => s.modalOptions);
 
     const isVisible = activeModal === 'modConfig';
-    const filePath = (modalOptions as { filePath?: string } | null)?.filePath ?? null;
+    const opts = modalOptions as { filePath?: string; initialSection?: ModInfoSection } | null;
+    const filePath = opts?.filePath ?? null;
+    const initialSection = opts?.initialSection;
 
     const [section, setSection] = useState<ModInfoSection>('details');
     const { draft, slug, dirty, saving, update, save } = useModInfo(filePath, isVisible, closeModal);
+
+    useEffect(() => {
+        if (isVisible) {
+            setSection(initialSection ?? 'details');
+        }
+    }, [isVisible, initialSection, filePath]);
 
     if (!isVisible) return null;
 

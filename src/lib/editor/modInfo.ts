@@ -62,7 +62,22 @@ export const WELL_KNOWN_MAPS = [
     'swarm',
 ] as const;
 
-export const COMMON_LICENSES = ['MIT', 'Apache-2.0', 'GPL-3.0-only', 'AGPL-3.0-only', 'CC-BY-4.0', 'CC0-1.0'];
+export const COMMON_LICENSES = [
+    'CC-BY-4.0',
+    'CC-BY-SA-4.0',
+    'CC-BY-ND-4.0',
+    'CC-BY-NC-4.0',
+    'CC-BY-NC-SA-4.0',
+    'CC-BY-NC-ND-4.0',
+    'CC0-1.0',
+    'MIT',
+    'Apache-2.0',
+    'GPL-3.0-only',
+    'AGPL-3.0-only',
+    'MPL-2.0',
+    'BSD-3-Clause',
+    'Unlicense',
+];
 
 export function authorName(author: ModConfigAuthor): string {
     if (typeof author === 'string') return author;

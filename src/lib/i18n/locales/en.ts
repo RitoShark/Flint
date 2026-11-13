@@ -247,6 +247,7 @@ export const en: TranslationDict = {
     'contextMenu.project': 'Project',
     'contextMenu.renameProject': 'Rename Project…',
     'contextMenu.editProjectInfo': 'Edit Project Info',
+    'contextMenu.setLicense': 'Set License…',
     'contextMenu.setThumbnail': 'Set Thumbnail…',
     'contextMenu.addLayer': 'Add Layer…',
     'contextMenu.portToChromas': 'Port to Chromas…',

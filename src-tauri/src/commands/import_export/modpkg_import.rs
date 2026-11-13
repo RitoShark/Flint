@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 
-use flint_core::export::{Modpkg, ModpkgLicense};
+use flint_core::export::{ChunkKey as ModpkgChunkKey, Modpkg, ModpkgLicense};
 
 use crate::commands::import_export::fantome_import::{
     extract_champion_from_paths, extract_skin_id_from_path, is_unresolved_hash, ImportOptions,
@@ -58,7 +58,7 @@ fn analyze_modpkg_internal(modpkg_path: &str) -> Result<ModpkgAnalysis, String> 
     let has_thumbnail = modpkg.load_thumbnail().is_ok();
 
     let content_paths: Vec<String> = modpkg
-        .chunk_paths
+        .chunk_paths()
         .values()
         .filter(|p| !p.starts_with("_meta_/"))
         .cloned()
@@ -125,8 +125,7 @@ pub async fn import_modpkg(
 }
 
 struct ModpkgChunkEntry {
-    path_hash: u64,
-    layer_hash: u64,
+    key: ModpkgChunkKey,
     path: String,
     wad: Option<String>,
     layer: String,
@@ -178,24 +177,11 @@ fn import_modpkg_internal(
 
     let thumbnail = modpkg.load_thumbnail().ok();
 
-    let license_bytes: Option<Box<[u8]>> = modpkg
-        .chunks
-        .keys()
-        .find_map(|(path_hash, layer_hash)| {
-            let path = modpkg.chunk_paths.get(path_hash)?;
-            if path.eq_ignore_ascii_case("_meta_/license") {
-                Some((*path_hash, *layer_hash))
-            } else {
-                None
-            }
-        })
-        .and_then(|(path_hash, layer_hash)| {
-            modpkg.load_chunk_decompressed_by_hash(path_hash, layer_hash).ok()
-        });
+    let license_bytes = modpkg.load_license_text().ok();
 
     let package_layers: Vec<(String, i32)> = {
         let mut layers: Vec<(String, i32)> = modpkg
-            .layers
+            .layers()
             .values()
             .map(|l| (l.name.clone(), l.priority))
             .collect();
@@ -204,22 +190,21 @@ fn import_modpkg_internal(
     };
 
     let chunk_entries: Vec<ModpkgChunkEntry> = modpkg
-        .chunks
+        .chunks()
         .iter()
-        .filter_map(|((path_hash, layer_hash), chunk)| {
-            let path = modpkg.chunk_paths.get(path_hash)?;
+        .filter_map(|(key, chunk)| {
+            let path = modpkg.chunk_paths().get(&key.path)?;
             if path.starts_with("_meta_/") {
                 return None;
             }
             let (prefix_wad, relative) = flint_core::export::split_wad_prefix(path);
             Some(ModpkgChunkEntry {
-                path_hash: *path_hash,
-                layer_hash: *layer_hash,
+                key: *key,
                 path: relative,
                 wad: flint_core::export::chunk_wad_name(&modpkg, chunk.wad_index).or(prefix_wad),
                 layer: modpkg
-                    .layers
-                    .get(layer_hash)
+                    .layers()
+                    .get(&key.layer)
                     .map(|l| l.name.clone())
                     .unwrap_or_else(|| "base".to_string()),
             })
@@ -247,7 +232,7 @@ fn import_modpkg_internal(
     let mut resolved_modpkg_paths: Vec<String> = Vec::with_capacity(paths.len());
     for (i, path) in paths.iter().enumerate() {
         if is_unresolved_hash(path) {
-            let path_hash = chunk_entries[i].path_hash;
+            let path_hash = chunk_entries[i].key.path.value();
             let resolved = resolver.resolve_wad(&[path_hash]);
             if let Some(res) = resolved.first() {
                 if !is_unresolved_hash(res) {
@@ -309,7 +294,8 @@ fn import_modpkg_internal(
     let mut bin = std::collections::BTreeMap::new();
 
     for entry in &chunk_entries {
-        let ModpkgChunkEntry { path_hash, layer_hash, path, wad, layer } = entry;
+        let ModpkgChunkEntry { key, path, wad, layer } = entry;
+        let path_hash = key.path.value();
         let chunk_root = content_path
             .join(layer)
             .join(wad.as_deref().unwrap_or(wad_folder_name.as_str()));
@@ -320,7 +306,7 @@ fn import_modpkg_internal(
         }
 
         let data = modpkg
-            .load_chunk_decompressed_by_hash(*path_hash, *layer_hash)
+            .load_chunk_decompressed(*key)
             .map_err(|e| format!("Failed to decompress chunk '{}': {}", path, e))?;
 
         if data.len() >= 4 {
@@ -371,7 +357,7 @@ fn import_modpkg_internal(
         if is_unresolved {
             let ext = final_path.extension().and_then(|e| e.to_str()).unwrap_or("dat").to_string();
             unresolved_files.push((
-                *path_hash,
+                path_hash,
                 ext,
                 out_path,
                 path.clone(),
@@ -681,7 +667,7 @@ fn import_modpkg_internal(
             }
             ModpkgLicense::Custom { name, url } => Some(ModProjectLicense::Custom {
                 name: name.clone(),
-                url: url.clone(),
+                url: url.clone().unwrap_or_default(),
             }),
         };
     }

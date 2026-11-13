@@ -3,11 +3,6 @@ import { open } from '../../lib/api/dialog';
 import { useModalStore, useNotificationStore, useAppMetadataStore } from '../../lib/stores';
 import { createSkinProject, resolveProjectsDir } from '../../lib/projectOpen';
 import { liveChampionAlias } from '../../lib/data/datadragon';
-import {
-    CcLicensePresetPicker,
-    resolveCcLicense,
-    type CcToggleState,
-} from '../../lib/editor/ccLicense';
 import * as api from '../../lib/api';
 import {
     Button,
@@ -49,13 +44,11 @@ export const CreateProjectFromWadModal: React.FC = () => {
 
     const [name, setName] = useState('');
     const [path, setPath] = useState('');
-    const [ccLicense, setCcLicense] = useState<CcToggleState>({ noEdits: false, noCommercial: false });
     const [busy, setBusy] = useState(false);
 
     useEffect(() => {
         if (!isVisible || !opts) return;
         setName(suggestedName(opts.champion, opts.skinId));
-        setCcLicense({ noEdits: false, noCommercial: false });
         setBusy(false);
         resolveProjectsDir().then(setPath).catch(() => setPath(''));
     }, [isVisible, opts?.champion, opts?.skinId]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -80,7 +73,6 @@ export const CreateProjectFromWadModal: React.FC = () => {
                 skinId: opts.skinId,
                 outputPath: path.trim(),
                 leaguePath: opts.leaguePath,
-                license: resolveCcLicense(ccLicense).spdx,
             });
             setReady();
             closeModal();
@@ -128,15 +120,6 @@ export const CreateProjectFromWadModal: React.FC = () => {
                         buttonLabel="Browse"
                         onButtonClick={handleBrowse}
                         disabled={busy}
-                    />
-                </FormGroup>
-
-                <FormGroup>
-                    <FormLabel>License</FormLabel>
-                    <CcLicensePresetPicker
-                        value={ccLicense}
-                        onChange={(next) => setCcLicense(next)}
-                        compact
                     />
                 </FormGroup>
             </ModalBody>

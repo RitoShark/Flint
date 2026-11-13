@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { useNotificationStore } from '../../../lib/stores';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNotificationStore, useProjectTabStore } from '../../../lib/stores';
 import {
     configFromDraft,
     draftFromConfig,
@@ -12,6 +12,7 @@ import * as api from '../../../lib/api';
 
 export interface ModInfoState {
     draft: ModInfoDraft | null;
+    rawJson: string;
     slug: string;
     dirty: boolean;
     saving: boolean;
@@ -81,6 +82,15 @@ export function useModInfo(filePath: string | null, active: boolean, onLoadError
             }
             setConfig(updated);
             savedRef.current = draft;
+            const tabs = useProjectTabStore.getState();
+            if (tabs.activeTabId) {
+                const activeTab = tabs.openTabs.find((t) => t.id === tabs.activeTabId);
+                if (activeTab?.projectPath) {
+                    api.listProjectFiles(activeTab.projectPath)
+                        .then((tree) => useProjectTabStore.getState().setFileTree(activeTab.id, tree))
+                        .catch(() => {});
+                }
+            }
             showToast('success', 'Project info saved');
             return true;
         } catch (err) {
@@ -92,7 +102,12 @@ export function useModInfo(filePath: string | null, active: boolean, onLoadError
         }
     }, [config, draft, filePath, showToast]);
 
+    const rawJson = useMemo(() => {
+        if (!config || !draft) return '';
+        return JSON.stringify(configFromDraft(config, draft), null, 2);
+    }, [config, draft]);
+
     const dirty = !!draft && !!savedRef.current && !draftsMatch(draft, savedRef.current);
 
-    return { draft, slug: (config?.name as string) || '', dirty, saving, update, save };
+    return { draft, rawJson, slug: (config?.name as string) || '', dirty, saving, update, save };
 }

@@ -72,6 +72,15 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                             }),
                     },
                     {
+                        label: t('contextMenu.setLicense'),
+                        icon: getIcon('lock'),
+                        onClick: () =>
+                            openModal('modConfig', {
+                                filePath: `${projectPath}/mod.config.json`,
+                                initialSection: 'license',
+                            }),
+                    },
+                    {
                         label: t('contextMenu.setThumbnail'),
                         icon: getIcon('picture'),
                         onClick: () => openModal('thumbnail', { projectPath }),
@@ -374,6 +383,11 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
             label: t('contextMenu.editProjectInfo'),
             icon: getIcon('settings'),
             onClick: () => openModal('modConfig', { filePath: fullPath }),
+        });
+        options.push({
+            label: t('contextMenu.setLicense'),
+            icon: getIcon('lock'),
+            onClick: () => openModal('modConfig', { filePath: fullPath, initialSection: 'license' }),
         });
     } else {
         const BIN_TEXT_EXTS = ['.bin', '.ritobin', '.py'];
