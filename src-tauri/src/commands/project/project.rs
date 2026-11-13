@@ -6,6 +6,8 @@ use flint_core::project::{
     open_project as core_open_project,
     register_in_index as core_register_in_index,
     save_project as core_save_project,
+    write_project_license_file,
+    ModProjectLicense,
     Project,
 };
 use flint_core::repath::{organize_project, rename_project_asset_prefix, OrganizerConfig, RenameResult};
@@ -124,6 +126,7 @@ pub async fn create_project(
     is_tft: Option<bool>,
     extract_sfx: Option<bool>,
     extract_vo: Option<bool>,
+    license: Option<String>,
     lmdb: tauri::State<'_, LmdbCacheState>,
     app: tauri::AppHandle,
 ) -> Result<Project, String> {
@@ -234,6 +237,16 @@ pub async fn create_project(
         project.source_branch = Some(source_branch);
         project.extract_sfx = repath_sfx;
         project.extract_vo = repath_vo;
+        project.license = license
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .map(ModProjectLicense::Spdx);
+        if project.license.is_some() {
+            core_save_project(&project).map_err(|e| e.to_string())?;
+            if let Err(e) = write_project_license_file(&project) {
+                tracing::warn!("Failed to write LICENSE file: {}", e);
+            }
+        }
         if is_tft_clone {
             project = project.into_tft(&champion_clone, skin_id);
             core_save_project(&project).map_err(|e| e.to_string())?;

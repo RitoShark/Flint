@@ -24,6 +24,12 @@ import { Button, Checkbox, Icon, Picker } from '../ui';
 
 import { compressDeflate, type ProjectType, SCALE_OPTIONS, FPS_OPTIONS } from './new-project/helpers';
 import { toDisplayPath, fromDisplayPath, registerAppHome } from '../../lib/util/displayPath';
+import {
+    CcLicensePresetPicker,
+    formatLicenseFileText,
+    resolveCcLicense,
+    type CcToggleState,
+} from '../../lib/editor/ccLicense';
 
 function mapArtUrl(mapId: string): string {
     return `/maps/${mapId.toLowerCase()}.webp`;
@@ -128,6 +134,7 @@ export const NewProjectModal: React.FC = () => {
     const [splashLoaded, setSplashLoaded] = useState(false);
     const [skinPickerOpen, setSkinPickerOpen] = useState(false);
     const [cacheReady, setCacheReady] = useState(0);
+    const [ccLicense, setCcLicense] = useState<CcToggleState>({ noEdits: false, noCommercial: false });
 
     // ─── Chroma hover preview (1.5s delay → big popup) ──────────────────
     const [chromaPreview, setChromaPreview] = useState<{
@@ -780,6 +787,7 @@ export const NewProjectModal: React.FC = () => {
                 isPbe: usePbe,
                 extractSfx,
                 extractVo,
+                license: resolveCcLicense(ccLicense).spdx,
             });
 
             await finishProjectCreation(project, selectedChampion.name, effectiveSkinNum);
@@ -889,6 +897,7 @@ export const NewProjectModal: React.FC = () => {
                 creatorName: creatorName || undefined,
                 extractMode: mapExtractMode,
                 variantName: mapExtractMode === 'variant' ? selectedVariant : undefined,
+                license: resolveCcLicense(ccLicense).spdx,
             });
             const mapEntry = availableMaps.find(m => m.id === selectedMapId);
             await finishProjectCreation(project, mapEntry?.displayName || selectedMapId, 0);
@@ -916,6 +925,29 @@ export const NewProjectModal: React.FC = () => {
         await new Promise((r) => setTimeout(r, 420));
 
         const projectDir = project.project_path || projectPath;
+        if (projectType === 'loading-screen') {
+            try {
+                const resolved = resolveCcLicense(ccLicense);
+                const sep = projectDir.includes('\\') ? '\\' : '/';
+                const configPath = `${projectDir}${sep}mod.config.json`;
+                const raw = await api.readTextFile(configPath);
+                const parsed = JSON.parse(raw) as Record<string, unknown>;
+                parsed.license = resolved.spdx;
+                await api.writeTextFile(configPath, JSON.stringify(parsed, null, 2));
+                const licenseText = formatLicenseFileText({
+                    spdx: resolved.spdx,
+                    label: resolved.label,
+                    fullTitle: resolved.fullTitle,
+                    url: resolved.url,
+                    author: creatorName || 'SirDexal',
+                    year: new Date().getFullYear(),
+                    modName: project.display_name || project.name || projectName,
+                });
+                await api.writeTextFile(`${projectDir}${sep}LICENSE`, licenseText);
+            } catch (err) {
+                console.warn('[NewProject] Failed to write loading-screen license:', err);
+            }
+        }
         useProjectTabStore.getState().addTab(project, projectDir);
         useNavigationStore.getState().setView('preview');
         const proj = project;
@@ -1196,6 +1228,14 @@ export const NewProjectModal: React.FC = () => {
                                 </label>
                             </>
                         )}
+
+                        <div className="np-rail__rule" />
+                        <div className="np-rail__group">License</div>
+                        <CcLicensePresetPicker
+                            value={ccLicense}
+                            onChange={(next) => setCcLicense(next)}
+                            compact
+                        />
                     </nav>
 
                     <div className="np-pane">

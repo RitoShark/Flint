@@ -1,8 +1,10 @@
 //! Creating, loading, and saving Flint mod projects in the league-mod format.
 
 use crate::error::{Error, Result};
-use chrono::{DateTime, Utc};
-use ltk_mod_project::{ModProject, ModProjectAuthor, ModProjectLayer, default_layers};
+use chrono::{DateTime, Datelike, Utc};
+use ltk_mod_project::{
+    default_layers, ModProject, ModProjectAuthor, ModProjectLayer, ModProjectLicense,
+};
 use serde::{Deserialize, Deserializer, Serialize};
 use std::fs::{self, File};
 use std::io::{BufReader, BufWriter};
@@ -150,7 +152,7 @@ impl FlintMetadata {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct Project {
     // ===== League-mod compatible fields (from mod.config.json) =====
 
@@ -172,7 +174,10 @@ pub struct Project {
     #[serde(default, deserialize_with = "deserialize_authors")]
     pub authors: Vec<String>,
 
-    /// mod.config.json keys Flint doesn't model (hashtables, license, transformers,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license: Option<ModProjectLicense>,
+
+    /// mod.config.json keys Flint doesn't model (hashtables, transformers,
     /// thumbnail, …), carried verbatim so a save never deletes another tool's data.
     #[serde(flatten)]
     pub extra: serde_json::Map<String, serde_json::Value>,
@@ -234,6 +239,47 @@ pub struct Project {
     pub modified_at: DateTime<Utc>,
 }
 
+fn clone_license(license: &Option<ModProjectLicense>) -> Option<ModProjectLicense> {
+    match license {
+        Some(ModProjectLicense::Spdx(spdx)) => Some(ModProjectLicense::Spdx(spdx.clone())),
+        Some(ModProjectLicense::Custom { name, url }) => Some(ModProjectLicense::Custom {
+            name: name.clone(),
+            url: url.clone(),
+        }),
+        None => None,
+    }
+}
+
+impl Clone for Project {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            display_name: self.display_name.clone(),
+            version: self.version.clone(),
+            description: self.description.clone(),
+            layers: self.layers.clone(),
+            authors: self.authors.clone(),
+            license: clone_license(&self.license),
+            extra: self.extra.clone(),
+            pid: self.pid.clone(),
+            kind: self.kind,
+            champion: self.champion.clone(),
+            skin_id: self.skin_id,
+            map_id: self.map_id.clone(),
+            league_path: self.league_path.clone(),
+            variant: self.variant.clone(),
+            game_version: self.game_version.clone(),
+            source_branch: self.source_branch.clone(),
+            repath_prefix: self.repath_prefix.clone(),
+            extract_sfx: self.extract_sfx,
+            extract_vo: self.extract_vo,
+            project_path: self.project_path.clone(),
+            created_at: self.created_at,
+            modified_at: self.modified_at,
+        }
+    }
+}
+
 /// Accepts plain strings, untagged `{name, role}`, and legacy tagged `{Name}` /
 /// `{NameAndRole: {name, role}}`, extracting the name in each case.
 fn deserialize_authors<'de, D>(deserializer: D) -> std::result::Result<Vec<String>, D::Error>
@@ -285,6 +331,7 @@ impl Project {
             description: format!("Mod for {} skin {}", champion_str, skin_id),
             layers: default_layers(),
             authors,
+            license: None,
             extra: serde_json::Map::new(),
             pid: uuid::Uuid::new_v4().to_string(),
             kind: ProjectKind::Skin,
@@ -292,6 +339,44 @@ impl Project {
             skin_id,
             map_id: None,
             league_path: Some(league_path.into()),
+            variant: None,
+            game_version: None,
+            source_branch: None,
+            repath_prefix: None,
+            extract_sfx: false,
+            extract_vo: false,
+            project_path: project_path.into(),
+            created_at: now,
+            modified_at: now,
+        }
+    }
+
+    pub fn from_mod_project(mp: ModProject, project_path: impl Into<PathBuf>) -> Self {
+        let now = Utc::now();
+        let authors = mp
+            .authors
+            .into_iter()
+            .map(|a| match a {
+                ModProjectAuthor::Name(name) => name,
+                ModProjectAuthor::Role { name, .. } => name,
+            })
+            .collect();
+
+        Self {
+            name: mp.name,
+            display_name: mp.display_name,
+            version: mp.version,
+            description: mp.description,
+            layers: mp.layers,
+            authors,
+            license: mp.license,
+            extra: serde_json::Map::new(),
+            pid: uuid::Uuid::new_v4().to_string(),
+            kind: ProjectKind::Skin,
+            champion: String::new(),
+            skin_id: 0,
+            map_id: None,
+            league_path: None,
             variant: None,
             game_version: None,
             source_branch: None,
@@ -337,7 +422,7 @@ impl Project {
             version: self.version.clone(),
             description: self.description.clone(),
             authors: self.authors.iter().map(|a| ModProjectAuthor::Name(a.clone())).collect(),
-            license: None,
+            license: clone_license(&self.license),
             transformers: vec![],
             layers: self.layers.clone(),
             thumbnail: None,
@@ -609,6 +694,122 @@ pub fn save_project(project: &Project) -> Result<()> {
     Ok(())
 }
 
+pub fn format_license_file_text(
+    spdx_or_name: &str,
+    url: Option<&str>,
+    author: &str,
+    year: i32,
+    mod_name: Option<&str>,
+) -> String {
+    let trimmed_id = spdx_or_name.trim();
+    let author_display = if author.trim().is_empty() {
+        "Mod Author"
+    } else {
+        author.trim()
+    };
+    let mod_line = match mod_name.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(m) => format!("Mod: {m}\n"),
+        None => String::new(),
+    };
+
+    let cc_info: Option<(&str, &str, &str, &str, &[&str])> = match trimmed_id {
+        "CC-BY-4.0" => Some((
+            "CC-BY-4.0",
+            "CC BY 4.0",
+            "Creative Commons Attribution 4.0 International",
+            "https://creativecommons.org/licenses/by/4.0/",
+            &[
+                "You must give appropriate credit, provide a link to the license, and indicate if changes were made.",
+                "You may share and adapt the material for any purpose, even commercially.",
+            ],
+        )),
+        "CC-BY-NC-4.0" => Some((
+            "CC-BY-NC-4.0",
+            "CC BY-NC 4.0",
+            "Creative Commons Attribution-NonCommercial 4.0 International",
+            "https://creativecommons.org/licenses/by-nc/4.0/",
+            &[
+                "You must give appropriate credit, provide a link to the license, and indicate if changes were made.",
+                "You may not use the material for commercial purposes.",
+                "You may share and adapt the material for non-commercial purposes.",
+            ],
+        )),
+        "CC-BY-ND-4.0" => Some((
+            "CC-BY-ND-4.0",
+            "CC BY-ND 4.0",
+            "Creative Commons Attribution-NoDerivatives 4.0 International",
+            "https://creativecommons.org/licenses/by-nd/4.0/",
+            &[
+                "You must give appropriate credit, provide a link to the license, and indicate if changes were made.",
+                "If you remix, transform, or build upon the material, you may not distribute the modified material.",
+                "You may copy and redistribute the material in any medium or format for any purpose, even commercially.",
+            ],
+        )),
+        "CC-BY-NC-ND-4.0" => Some((
+            "CC-BY-NC-ND-4.0",
+            "CC BY-NC-ND 4.0",
+            "Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International",
+            "https://creativecommons.org/licenses/by-nc-nd/4.0/",
+            &[
+                "You must give appropriate credit, provide a link to the license, and indicate if changes were made.",
+                "You may not use the material for commercial purposes.",
+                "If you remix, transform, or build upon the material, you may not distribute the modified material.",
+            ],
+        )),
+        _ => None,
+    };
+
+    if let Some((spdx, label, full_title, default_url, terms)) = cc_info {
+        let resolved_url = url.map(str::trim).filter(|s| !s.is_empty()).unwrap_or(default_url);
+        let terms_block = terms
+            .iter()
+            .map(|t| format!("- {t}"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        format!(
+            "{full_title} ({label})\n\nCopyright © {year} {author_display}\n{mod_line}\nThis work is licensed under the {full_title} License ({spdx}).\n\nSummary of Terms:\n{terms_block}\n\nFull License Text:\n{resolved_url}\n"
+        )
+    } else {
+        let url_block = match url.map(str::trim).filter(|s| !s.is_empty()) {
+            Some(u) => format!("\nFull License Text:\n{u}\n"),
+            None => String::new(),
+        };
+        format!(
+            "{trimmed_id}\n\nCopyright © {year} {author_display}\n{mod_line}\nThis work is licensed under {trimmed_id}.\n{url_block}"
+        )
+    }
+}
+
+pub fn write_project_license_file(project: &Project) -> Result<()> {
+    let Some(license) = &project.license else {
+        return Ok(());
+    };
+    let (id_or_name, url) = match license {
+        ModProjectLicense::Spdx(spdx) => (spdx.as_str(), None),
+        ModProjectLicense::Custom { name, url } => (name.as_str(), Some(url.as_str())),
+    };
+    if id_or_name.trim().is_empty() {
+        return Ok(());
+    }
+    let author = if project.authors.is_empty() {
+        String::new()
+    } else {
+        project.authors.join(", ")
+    };
+    let year = Utc::now().year();
+    let mod_name = if !project.display_name.trim().is_empty() {
+        Some(project.display_name.as_str())
+    } else if !project.name.trim().is_empty() {
+        Some(project.name.as_str())
+    } else {
+        None
+    };
+    let content = format_license_file_text(id_or_name, url, &author, year, mod_name);
+    let license_path = project.project_path.join("LICENSE");
+    fs::write(&license_path, content).map_err(|e| Error::io_with_path(e, &license_path))?;
+    Ok(())
+}
+
 fn sanitize_filename(name: &str) -> String {
     name.chars()
         .map(|c| {
@@ -842,6 +1043,47 @@ mod tests {
         std::fs::create_dir_all(&league_dir).unwrap();
         let result = create_project("Test", "", 0, &league_dir, temp_dir.path(), None);
         assert!(result.is_ok(), "empty champion should be allowed: {:?}", result);
+    }
+
+    #[test]
+    fn test_license_round_trip_and_file_write() {
+        let temp_dir = tempdir().unwrap();
+        let league_dir = temp_dir.path().join("League");
+        std::fs::create_dir_all(&league_dir).unwrap();
+        let mut project = create_project(
+            "Licensed Mod",
+            "Ahri",
+            0,
+            &league_dir,
+            temp_dir.path(),
+            Some("Alice".to_string()),
+        )
+        .unwrap();
+        project.license = Some(ModProjectLicense::Spdx("CC-BY-NC-4.0".to_string()));
+        save_project(&project).unwrap();
+        write_project_license_file(&project).unwrap();
+
+        let loaded = open_project(&project.project_path).unwrap();
+        assert_eq!(
+            loaded.license,
+            Some(ModProjectLicense::Spdx("CC-BY-NC-4.0".to_string()))
+        );
+        let mp = loaded.to_mod_project();
+        assert_eq!(
+            mp.license,
+            Some(ModProjectLicense::Spdx("CC-BY-NC-4.0".to_string()))
+        );
+        let round_tripped = Project::from_mod_project(mp, &project.project_path);
+        assert_eq!(
+            round_tripped.license,
+            Some(ModProjectLicense::Spdx("CC-BY-NC-4.0".to_string()))
+        );
+
+        let license_text =
+            std::fs::read_to_string(project.project_path.join("LICENSE")).unwrap();
+        assert!(license_text.contains("Creative Commons Attribution-NonCommercial 4.0 International"));
+        assert!(license_text.contains("Alice"));
+        assert!(license_text.contains("https://creativecommons.org/licenses/by-nc/4.0/"));
     }
 }
 

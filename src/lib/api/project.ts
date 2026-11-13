@@ -13,6 +13,7 @@ interface CreateProjectParams {
     isTft?: boolean;
     extractSfx?: boolean;
     extractVo?: boolean;
+    license?: string;
 }
 
 export async function createProject(params: CreateProjectParams): Promise<Project> {
@@ -27,6 +28,7 @@ export async function createProject(params: CreateProjectParams): Promise<Projec
         isTft: params.isTft,
         extractSfx: params.extractSfx,
         extractVo: params.extractVo,
+        license: params.license,
     });
 }
 

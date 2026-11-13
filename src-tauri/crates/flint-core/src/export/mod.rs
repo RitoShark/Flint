@@ -4,7 +4,9 @@ use std::path::{Path, PathBuf};
 /// Mod-package container types, re-exported so callers build archives through
 /// this module rather than depending on the packaging crate directly.
 pub use ltk_modpkg::builder::{ModpkgBuilder, ModpkgChunkBuilder, ModpkgLayerBuilder};
-pub use ltk_modpkg::{Modpkg, ModpkgAuthor, ModpkgCompression, ModpkgLayerMetadata, ModpkgMetadata};
+pub use ltk_modpkg::{
+    Modpkg, ModpkgAuthor, ModpkgCompression, ModpkgLayerMetadata, ModpkgLicense, ModpkgMetadata,
+};
 
 /// `_meta_/` chunks the modpkg builder rewrites itself; every OTHER `_meta_/`
 /// chunk (embedded hashtables, readme, future standard additions) must be

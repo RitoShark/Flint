@@ -159,6 +159,7 @@ export async function createSkinProject(args: {
     skinId: number;
     outputPath: string;
     leaguePath: string;
+    license?: string;
 }): Promise<Project> {
     const project = await api.createProject({
         name: args.name,
@@ -167,6 +168,7 @@ export async function createSkinProject(args: {
         projectPath: args.outputPath,
         leaguePath: args.leaguePath,
         creatorName: useConfigStore.getState().creatorName || undefined,
+        license: args.license,
     });
 
     const projectDir = project.project_path || `${args.outputPath}/${args.name}`;

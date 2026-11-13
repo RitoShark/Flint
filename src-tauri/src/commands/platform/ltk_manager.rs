@@ -331,7 +331,7 @@ which is what `mod.config.json` already declares.
 fn workshop_mirror_plan(project_root: &std::path::Path) -> Result<Vec<(PathBuf, String)>, String> {
     let mut plan = Vec::new();
 
-    for name in ["mod.config.json", "flint.json", "thumbnail.webp", "thumbnail.png"] {
+    for name in ["mod.config.json", "flint.json", "LICENSE", "thumbnail.webp", "thumbnail.png"] {
         let path = project_root.join(name);
         if path.is_file() {
             plan.push((path, name.to_string()));
@@ -818,6 +818,7 @@ mod workshop_tests {
         let root = TempRoot::new("layered");
         root.write("mod.config.json", "{}");
         root.write("flint.json", "{}");
+        root.write("LICENSE", "CC BY 4.0");
         root.write("thumbnail.webp", "img");
         root.write("content/base/kayn.wad.client/data/x.bin", "x");
         root.write("content/cacoon/kayn.wad.client/data/y.bin", "y");
@@ -828,6 +829,7 @@ mod workshop_tests {
         assert!(dests.contains(&"content/base/kayn.wad.client/data/x.bin"), "{dests:?}");
         assert!(dests.contains(&"content/cacoon/kayn.wad.client/data/y.bin"), "{dests:?}");
         assert!(dests.contains(&"thumbnail.webp"));
+        assert!(dests.contains(&"LICENSE"));
         assert!(dests.contains(&"flint.json"));
         assert!(dests.iter().all(|d| !d.contains("content/base/base")));
     }

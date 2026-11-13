@@ -35,6 +35,7 @@ export interface CreateMapProjectParams {
     /** Required when extractMode is 'variant'. Variant base name from
      *  `listMapVariants`. */
     variantName?: string;
+    license?: string;
 }
 
 export async function createMapProject(params: CreateMapProjectParams): Promise<Project> {
@@ -47,5 +48,6 @@ export async function createMapProject(params: CreateMapProjectParams): Promise<
         creatorName: params.creatorName,
         extractMode: params.extractMode ?? 'variant',
         variantName: params.variantName,
+        license: params.license,
     });
 }

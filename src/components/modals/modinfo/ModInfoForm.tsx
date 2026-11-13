@@ -8,6 +8,10 @@ import {
     toggleValue,
     type ModInfoDraft,
 } from '../../../lib/editor/modInfo';
+import {
+    CcLicensePresetPicker,
+    parseCcLicenseSpdx,
+} from '../../../lib/editor/ccLicense';
 
 export type ModInfoSection = 'details' | 'people' | 'targets' | 'license';
 
@@ -270,6 +274,14 @@ export const ModInfoForm: React.FC<Props> = ({ section, draft, slug, onChange })
                         </button>
                     ))}
                 </div>
+            </div>
+
+            <div className="mi-field">
+                <span className="mi-field__label">Creative Commons Preset</span>
+                <CcLicensePresetPicker
+                    value={parseCcLicenseSpdx(draft.licenseSpdx) ?? { noEdits: false, noCommercial: false }}
+                    onChange={(_state, resolved) => onChange({ licenseKind: 'spdx', licenseSpdx: resolved.spdx })}
+                />
             </div>
 
             {draft.licenseKind === 'spdx' && (

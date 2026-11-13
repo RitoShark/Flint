@@ -9,7 +9,9 @@ use flint_core::hash::resolve_hashes_lmdb_bulk;
 use flint_core::map::{
     self, MapEntry, MapProjectResult, MapVariant,
 };
-use flint_core::project::Project;
+use flint_core::project::{
+    save_project as core_save_project, write_project_license_file, ModProjectLicense, Project,
+};
 use serde::Serialize;
 use std::path::PathBuf;
 use tauri::Emitter;
@@ -95,6 +97,7 @@ pub async fn create_map_project(
     extract_mode: Option<String>,
     // variant_name: required when extract_mode == "variant".
     variant_name: Option<String>,
+    license: Option<String>,
     lmdb: tauri::State<'_, LmdbCacheState>,
     app: tauri::AppHandle,
 ) -> Result<Project, String> {
@@ -152,7 +155,21 @@ pub async fn create_map_project(
             variant_for_extract.as_deref(),
             resolve,
             progress,
-        ).map_err(|e| e.to_string())
+        )
+        .map_err(|e| e.to_string())
+        .and_then(|mut r| {
+            r.project.license = license
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .map(ModProjectLicense::Spdx);
+            if r.project.license.is_some() {
+                core_save_project(&r.project).map_err(|e| e.to_string())?;
+                if let Err(e) = write_project_license_file(&r.project) {
+                    tracing::warn!("Failed to write LICENSE file: {}", e);
+                }
+            }
+            Ok(r)
+        })
     })
     .await
     .map_err(|e| format!("Task failed: {}", e))?;

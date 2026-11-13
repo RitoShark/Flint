@@ -7,6 +7,7 @@ import {
     type ModConfig,
     type ModInfoDraft,
 } from '../../../lib/editor/modInfo';
+import { formatLicenseFileText } from '../../../lib/editor/ccLicense';
 import * as api from '../../../lib/api';
 
 export interface ModInfoState {
@@ -60,6 +61,24 @@ export function useModInfo(filePath: string | null, active: boolean, onLoadError
         try {
             const updated = configFromDraft(config, draft);
             await api.writeTextFile(filePath, JSON.stringify(updated, null, 2));
+            const licenseId = draft.licenseKind === 'spdx'
+                ? draft.licenseSpdx.trim()
+                : draft.licenseKind === 'custom'
+                    ? draft.licenseName.trim()
+                    : '';
+            if (licenseId) {
+                const projectDir = filePath.replace(/[\\/][^\\/]+$/, '');
+                const sep = filePath.includes('\\') ? '\\' : '/';
+                const author = draft.authors.map((a) => a.name.trim()).filter(Boolean).join(', ');
+                const licenseText = formatLicenseFileText({
+                    spdx: licenseId,
+                    url: draft.licenseKind === 'custom' ? draft.licenseUrl.trim() : undefined,
+                    author,
+                    year: new Date().getFullYear(),
+                    modName: draft.displayName.trim() || (config.name as string) || '',
+                });
+                await api.writeTextFile(`${projectDir}${sep}LICENSE`, licenseText);
+            }
             setConfig(updated);
             savedRef.current = draft;
             showToast('success', 'Project info saved');

@@ -6,13 +6,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 
-use flint_core::export::Modpkg;
+use flint_core::export::{Modpkg, ModpkgLicense};
 
 use crate::commands::import_export::fantome_import::{
     extract_champion_from_paths, extract_skin_id_from_path, is_unresolved_hash, ImportOptions,
 };
 use flint_core::overlay::{HashResolver, ProjectHashOverlay};
-use flint_core::project::Project;
+use flint_core::project::{write_project_license_file, ModProjectLicense, Project};
 use crate::state::HashOverlayState;
 
 // =============================================================================
@@ -177,6 +177,21 @@ fn import_modpkg_internal(
     let metadata = modpkg.load_metadata().ok();
 
     let thumbnail = modpkg.load_thumbnail().ok();
+
+    let license_bytes: Option<Box<[u8]>> = modpkg
+        .chunks
+        .keys()
+        .find_map(|(path_hash, layer_hash)| {
+            let path = modpkg.chunk_paths.get(path_hash)?;
+            if path.eq_ignore_ascii_case("_meta_/license") {
+                Some((*path_hash, *layer_hash))
+            } else {
+                None
+            }
+        })
+        .and_then(|(path_hash, layer_hash)| {
+            modpkg.load_chunk_decompressed_by_hash(path_hash, layer_hash).ok()
+        });
 
     let package_layers: Vec<(String, i32)> = {
         let mut layers: Vec<(String, i32)> = modpkg
@@ -659,6 +674,22 @@ fn import_modpkg_internal(
         if meta.authors.len() > 1 {
             project.authors = meta.authors.iter().map(|a| a.name.clone()).collect();
         }
+        project.license = match &meta.license {
+            ModpkgLicense::None => None,
+            ModpkgLicense::Spdx { spdx_id } => {
+                Some(ModProjectLicense::Spdx(spdx_id.clone()))
+            }
+            ModpkgLicense::Custom { name, url } => Some(ModProjectLicense::Custom {
+                name: name.clone(),
+                url: url.clone(),
+            }),
+        };
+    }
+
+    if let Some(bytes) = license_bytes {
+        let _ = std::fs::write(project.project_path.join("LICENSE"), bytes);
+    } else if project.license.is_some() {
+        let _ = write_project_license_file(&project);
     }
 
     let _ = app.emit(

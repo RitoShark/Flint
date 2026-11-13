@@ -1,6 +1,6 @@
 use flint_core::path_slash::to_slash;
 use flint_core::repath::{organize_project, OrganizerConfig};
-use flint_core::project::{ModProject, ModProjectAuthor};
+use flint_core::project::{ModProject, ModProjectAuthor, ModProjectLicense};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
@@ -347,6 +347,16 @@ fn export_with_ltk_fantome(
         "Version": mod_project.version,
         "Description": mod_project.description,
     });
+    if let Some(license) = &mod_project.license {
+        match license {
+            ModProjectLicense::Spdx(spdx) => {
+                info["License"] = serde_json::Value::String(spdx.clone());
+            }
+            ModProjectLicense::Custom { name, url } => {
+                info["License"] = serde_json::json!({ "name": name, "url": url });
+            }
+        }
+    }
     if !tables.is_empty() {
         info["Hashtables"] =
             serde_json::Value::Array(tables.iter().map(|t| t.manifest.clone()).collect());
@@ -362,6 +372,16 @@ fn export_with_ltk_fantome(
             .as_bytes(),
     )
     .map_err(|e| format!("Failed to write info.json: {}", e))?;
+
+    let license_path = project_path.join("LICENSE");
+    if license_path.is_file() {
+        if let Ok(license_bytes) = std::fs::read(&license_path) {
+            if zip.start_file("META/LICENSE", meta_options).is_ok() {
+                let _ = zip.write_all(&license_bytes);
+                tracing::info!("Embedded META/LICENSE ({} bytes)", license_bytes.len());
+            }
+        }
+    }
 
     for table in &tables {
         if zip.start_file(table.zip_path.as_str(), meta_options).is_ok() {
@@ -558,7 +578,9 @@ fn export_with_ltk_modpkg(
     mod_project: &ModProject,
 ) -> Result<(usize, u64), String> {
     use flint_core::export::{ModpkgBuilder, ModpkgChunkBuilder, ModpkgLayerBuilder};
-    use flint_core::export::{ModpkgAuthor, ModpkgLayerMetadata, ModpkgMetadata};
+    use flint_core::export::{
+        ModpkgAuthor, ModpkgCompression, ModpkgLayerMetadata, ModpkgLicense, ModpkgMetadata,
+    };
     use std::io::Write;
 
     let content = project_path.join("content");
@@ -619,6 +641,16 @@ fn export_with_ltk_modpkg(
                 flint_core::project::ModProjectAuthor::Role { name, role } => ModpkgAuthor::new(name.clone(), Some(role.clone())),
             }
         }).collect(),
+        license: match &mod_project.license {
+            None => ModpkgLicense::None,
+            Some(ModProjectLicense::Spdx(spdx_id)) => ModpkgLicense::Spdx {
+                spdx_id: spdx_id.clone(),
+            },
+            Some(ModProjectLicense::Custom { name, url }) => ModpkgLicense::Custom {
+                name: name.clone(),
+                url: url.clone(),
+            },
+        },
         layers: layers
             .iter()
             .map(|(name, priority, description)| ModpkgLayerMetadata {
@@ -678,6 +710,20 @@ fn export_with_ltk_modpkg(
         if let Some(wad) = wad {
             chunk = chunk.with_wad(wad);
         }
+        builder = builder.with_chunk(chunk);
+    }
+
+    let license_path = project_path.join("LICENSE");
+    if license_path.is_file() {
+        let chunk = ModpkgChunkBuilder::new()
+            .with_path("_meta_/LICENSE")
+            .map_err(|e| format!("Failed to set LICENSE chunk path: {}", e))?
+            .with_layer("")
+            .with_compression(ModpkgCompression::None);
+        file_paths.insert(
+            ("_meta_/license".to_string(), String::new()),
+            (None, license_path),
+        );
         builder = builder.with_chunk(chunk);
     }
 
@@ -861,5 +907,45 @@ mod tests {
         };
         assert_eq!(compression("assets/t.tex"), ModpkgCompression::Zstd);
         assert_eq!(compression("assets/v.bnk"), ModpkgCompression::None);
+    }
+
+    #[test]
+    fn license_metadata_and_file_ship_in_modpkg() {
+        use flint_core::export::ModpkgLicense;
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        seed(root, "content/base/Aatrox.wad.client/assets/t.tex", b"tex-bytes");
+        seed(root, "LICENSE", b"Copyright 2026 SirDexal - CC BY 4.0");
+        let out = root.join("out.modpkg");
+
+        let mut mp = project(r#"{"name": "base", "priority": 0}"#);
+        mp.license = Some(ModProjectLicense::Spdx("CC-BY-4.0".to_string()));
+
+        let (count, _) = export_with_ltk_modpkg(root, &out, &mp).unwrap();
+        assert_eq!(count, 1);
+
+        let mut pkg = mount(&out);
+        let meta = pkg.load_metadata().unwrap();
+        assert_eq!(
+            meta.license,
+            ModpkgLicense::Spdx {
+                spdx_id: "CC-BY-4.0".to_string()
+            }
+        );
+
+        let (path_hash, layer_hash) = pkg
+            .chunks
+            .keys()
+            .find(|(ph, _)| {
+                pkg.chunk_paths
+                    .get(ph)
+                    .is_some_and(|p| p == "_meta_/license")
+            })
+            .copied()
+            .unwrap();
+        let license_bytes = pkg
+            .load_chunk_decompressed_by_hash(path_hash, layer_hash)
+            .unwrap();
+        assert_eq!(&*license_bytes, b"Copyright 2026 SirDexal - CC BY 4.0");
     }
 }
