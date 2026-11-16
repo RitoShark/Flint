@@ -112,3 +112,13 @@ export async function fixBinRetypes(
 ): Promise<RetypeReport> {
     return invokeCommand('fix_bin_retypes', { folderPath, fixes });
 }
+
+export interface ShapeFixResult {
+    text: string;
+    changed: number;
+    metadata_version: string;
+}
+
+export async function fixVfxShapes(text: string): Promise<ShapeFixResult> {
+    return invokeCommand('fix_vfx_shapes', { text });
+}

@@ -19,3 +19,12 @@ published dump and update the source/version fields. Run the `meta_schema` tests
 in `flint-bin` and the `loadscreen` tests in `flint-core`. Existing loading-screen
 projects can use Rebuild to replace their generated BIN; existing banners can
 be reapplied to regenerate the material with current types.
+
+## VFX shape migration test metadata
+
+`vfx_shape_meta_16.22.json` is a reduced class/property subset of the
+LeagueToolkit 16.22 dump cached by Flint. It keeps the emitter's modern shape
+and birth-translation fields, VfxShapeLegacy, its base, and the value/curve
+classes used in migration tests. Runtime migration requires downloaded metadata;
+this fixture is not an offline fallback. Tests alter declarations and inheritance
+to verify that incompatible future schemas block edits.

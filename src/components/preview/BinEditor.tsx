@@ -282,6 +282,8 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const [auditRevision, setAuditRevision] = useState(0);
     const [auditIndex, setAuditIndex] = useState(0);
     const [openIssue, setOpenIssue] = useState<api.CheckIssue | null>(null);
+    const [fixingShapes, setFixingShapes] = useState(false);
+    const shapeFixPending = useRef(false);
     /* Findings describe the saved file, so one whose retype is already in the buffer would
        otherwise read as untouched until the next save. */
     const [appliedFixes, setAppliedFixes] = useState<Set<string>>(() => new Set());
@@ -903,6 +905,36 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
         revealAndFlash(new monaco.Range(line, 1, line, model.getLineMaxColumn(line)));
     }, [revealAndFlash]);
 
+    const applyShapeFix = useCallback(async () => {
+        const ed = editorRef.current;
+        const model = ed?.getModel();
+        if (!ed || !model || shapeFixPending.current) return;
+        const version = model.getVersionId();
+        shapeFixPending.current = true;
+        setFixingShapes(true);
+        try {
+            const result = await api.fixVfxShapes(model.getValue());
+            if (model.isDisposed() || editorRef.current !== ed || ed.getModel() !== model || model.getVersionId() !== version) {
+                showToast('info', 'The editor changed while checking metadata. Run the fix again.');
+                return;
+            }
+            if (result.changed === 0) {
+                showToast('info', 'No old VFX shapes need fixing.');
+                return;
+            }
+            ed.pushUndoStop();
+            ed.executeEdits('flint-vfx-shape-fix', [{ range: model.getFullModelRange(), text: result.text }]);
+            ed.pushUndoStop();
+            setOpenIssue(null);
+            showToast('success', `Fixed ${result.changed} VFX shapes using metadata ${result.metadata_version}. Save to re-check.`);
+        } catch (error) {
+            showToast('error', String(error));
+        } finally {
+            shapeFixPending.current = false;
+            setFixingShapes(false);
+        }
+    }, [showToast]);
+
     /* One edit operation between undo stops, so the whole retype is a single Ctrl+Z. */
     const applyTypeFix = useCallback((fix: api.TypeFix) => {
         const ed = editorRef.current;
@@ -1511,7 +1543,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                                             : ''}
                                     </span>
                                 )}
-                                {issue.fix && (
+                                {(issue.fix || issue.code === 'bin.old-vfx-shape') && (
                                     <span className="bin-editor__issue-chip">
                                         {isApplied(issue) ? 'Changed' : 'Fix'}
                                     </span>
@@ -1528,6 +1560,8 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 onClose={() => setOpenIssue(null)}
                 onGoToLine={goToIssueLine}
                 onApplyFix={applyTypeFix}
+                onFixShapes={applyShapeFix}
+                fixingShapes={fixingShapes}
             />
             <div style={{ flex: 1, display: 'flex', minHeight: 0, position: 'relative' }}>
                 <div

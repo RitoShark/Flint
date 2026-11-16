@@ -843,7 +843,7 @@ pub fn check_bin_hazards(bin: &Bin, rel: &str, text: Option<&str>) -> Vec<CheckI
             "bin.old-vfx-shape",
             rel,
             format!(
-                "{old_shapes} VFX emitter{} still use the pre-14.1 shape layout (birthTranslation/emitOffset/emitRotation inside `shape`). The client ignores them, so those particles emit wrongly or not at all. Hematite's `vfx_shape_fix` converts them.",
+                "{old_shapes} VFX emitter{} still use the pre-14.1 shape layout (birthTranslation/emitOffset/emitRotation inside `shape`). The client ignores them, so those particles emit wrongly or not at all. Open this issue and choose Fix VFX shapes to migrate using class metadata.",
                 if old_shapes == 1 { "" } else { "s" },
             ),
         ));

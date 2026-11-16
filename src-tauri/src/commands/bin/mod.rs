@@ -7,6 +7,7 @@ pub mod paint;
 pub mod linked;
 pub mod search;
 pub mod sort_vfx;
+pub mod vfx_shape;
 pub mod toon;
 
 pub use bin::*;

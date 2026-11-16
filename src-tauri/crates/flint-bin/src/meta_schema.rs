@@ -29,6 +29,7 @@ struct Class {
 }
 #[derive(Deserialize)]
 struct Property {
+    other_class: Option<String>,
     value_type: String,
     container: Option<Container>,
     map: Option<Map>,
@@ -45,6 +46,7 @@ struct Map {
 struct ClassTypes {
     bases: Vec<u32>,
     properties: HashMap<u32, String>,
+    targets: HashMap<u32, u32>,
 }
 pub struct Schema {
     pub version: String,
@@ -250,13 +252,17 @@ impl Schema {
                 bases.push(hash(base)?);
             }
             let mut properties = HashMap::new();
+            let mut targets = HashMap::new();
             for (id, property) in class.properties {
                 let id = hash(&id)?;
+                if let Some(target) = &property.other_class {
+                    targets.insert(id, hash(target)?);
+                }
                 if let Some(ty) = property.declaration() {
                     properties.insert(id, ty);
                 }
             }
-            classes.insert(hash(&id)?, ClassTypes { bases, properties });
+            classes.insert(hash(&id)?, ClassTypes { bases, properties, targets });
         }
         Ok(Self {
             version: dump.version,
@@ -279,6 +285,71 @@ impl Schema {
         }
         None
     }
+    pub fn derives_from(&self, class: u32, base: u32) -> bool {
+        let mut todo = vec![class];
+        let mut visited = HashSet::new();
+        while let Some(id) = todo.pop() {
+            if !visited.insert(id) { continue; }
+            if let Some(c) = self.classes.get(&id) {
+                if id == base { return true; }
+                todo.extend(&c.bases);
+            }
+        }
+        false
+    }
+
+    pub fn validate_fields(&self, class: u32, fields: &IndexMap<u32, BinValue>) -> Result<(), String> {
+        if !self.classes.contains_key(&class) {
+            return Err(format!("Metadata {} has no class 0x{class:08x}", self.version));
+        }
+        for (&field, value) in fields {
+            let actual = declared_type(value);
+            if self.expected(class, field) != Some(actual.as_str()) {
+                return Err(format!("Metadata {} does not accept 0x{class:08x}.0x{field:08x} as {actual}", self.version));
+            }
+            let mut todo = vec![class];
+            let mut visited = HashSet::new();
+            let mut target = None;
+            while let Some(id) = todo.pop() {
+                if !visited.insert(id) { continue; }
+                if let Some(c) = self.classes.get(&id) {
+                    if c.properties.contains_key(&field) {
+                        target = c.targets.get(&field).copied();
+                        break;
+                    }
+                    todo.extend(c.bases.iter().rev());
+                }
+            }
+            self.validate_value(value, target)?;
+        }
+        Ok(())
+    }
+
+    fn validate_value(&self, value: &BinValue, target: Option<u32>) -> Result<(), String> {
+        match value {
+            BinValue::Pointer { class: 0, fields } if fields.is_empty() => {},
+            BinValue::Pointer { class, fields } | BinValue::Embed { class, fields } => {
+                let base = target.ok_or_else(|| format!("Metadata {} has no target class", self.version))?;
+                if !self.derives_from(*class, base) {
+                    return Err(format!("Metadata {} rejects class 0x{class:08x} for 0x{base:08x}", self.version));
+                }
+                self.validate_fields(*class, fields)?;
+            }
+            BinValue::List { items, .. } => {
+                for item in items { self.validate_value(item, target)?; }
+            }
+            BinValue::Option { value: Some(value), .. } => self.validate_value(value, target)?,
+            BinValue::Map { entries, .. } => {
+                for (key, value) in entries {
+                    self.validate_value(key, target)?;
+                    self.validate_value(value, target)?;
+                }
+            }
+            _ => {},
+        }
+        Ok(())
+    }
+
     pub fn check(
         &self,
         bin: &Bin,
@@ -647,6 +718,7 @@ mod tests {
                 class,
                 ClassTypes {
                     bases: vec![],
+                    targets: HashMap::new(),
                     properties: HashMap::from([(field, "file".into())]),
                 },
             )]),

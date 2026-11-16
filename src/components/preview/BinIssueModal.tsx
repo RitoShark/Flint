@@ -12,6 +12,8 @@ interface Props {
     dirty: boolean;
     onGoToLine: (line: number) => void;
     onApplyFix: (fix: api.TypeFix) => void;
+    onFixShapes: () => void;
+    fixingShapes: boolean;
     onClose: () => void;
 }
 
@@ -24,7 +26,7 @@ function lineList(lines: number[]): string {
     return lines.length === 1 ? `Line ${lines[0]}` : `Lines ${lines.join(', ')}`;
 }
 
-export const BinIssueModal: React.FC<Props> = ({ issue, applied, dirty, onGoToLine, onApplyFix, onClose }) => {
+export const BinIssueModal: React.FC<Props> = ({ issue, applied, dirty, onGoToLine, onApplyFix, onFixShapes, fixingShapes, onClose }) => {
     // Hold the last issue so the body does not blank out during the modal's exit motion.
     const shownRef = useRef<api.CheckIssue | null>(null);
     if (issue) shownRef.current = issue;
@@ -55,6 +57,13 @@ export const BinIssueModal: React.FC<Props> = ({ issue, applied, dirty, onGoToLi
                         )}
                         {shown.detail && <p className="bin-issue__detail">{shown.detail}</p>}
 
+                        {shown.code === 'bin.old-vfx-shape' && (
+                            <p className="bin-issue__detail">
+                                Preserves offsets and rotation curves using VfxShapeLegacy and moves birth translation to the emitter.
+                                Validates every migrated field against the loaded class metadata. Unsupported layouts leave the file unchanged.
+                                Applied as one undoable edit; save when ready. BIN text formatting is normalized.
+                            </p>
+                        )}
                         {fix && (
                             <div className="bin-issue__diff">
                                 <div className="bin-issue__diff-row bin-issue__diff-row--from">
@@ -88,6 +97,11 @@ export const BinIssueModal: React.FC<Props> = ({ issue, applied, dirty, onGoToLi
                             <Button variant="ghost" onClick={onClose}>Close</Button>
                             {line !== undefined && (
                                 <Button onClick={() => onGoToLine(line)}>Go to line</Button>
+                            )}
+                            {shown.code === 'bin.old-vfx-shape' && !applied && (
+                                <Button variant="primary" disabled={dirty || fixingShapes} onClick={onFixShapes}>
+                                    {fixingShapes ? 'Checking metadata...' : 'Fix VFX shapes'}
+                                </Button>
                             )}
                             {fix && !applied && (
                                 <Button

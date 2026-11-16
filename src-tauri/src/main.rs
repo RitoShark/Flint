@@ -384,6 +384,7 @@ fn main() {
             commands::bin_split::organize_bins_vfx,
             commands::bin_split::get_vfx_filename_command,
             commands::sort_vfx::sort_bins_vfx_by_skill,
+            commands::bin::vfx_shape::fix_vfx_shapes,
             // External apps commands (Jade/Quartz/RubyRe integration)
             commands::external_apps::detect_jade_installation,
             commands::external_apps::detect_quartz_installation,

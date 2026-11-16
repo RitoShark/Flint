@@ -14,6 +14,7 @@ pub mod converter;
 pub mod paint;
 pub mod preloads;
 pub mod sort_vfx;
+pub mod vfx_shape;
 pub mod split;
 pub mod texture_header;
 

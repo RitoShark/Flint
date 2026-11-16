@@ -1,0 +1,169 @@
+{
+  "formatVersion": 3,
+  "version": "16.22",
+  "classes": {
+    "0x4f4e2ed7": {
+      "base": "0x7d3206d",
+      "secondary_bases": {},
+      "properties": {
+        "0x7f41838": {
+          "value_type": "List",
+          "other_class": "0x4300058",
+          "container": {
+            "value_type": "Embed"
+          },
+          "map": null
+        },
+        "0xd1789c65": {
+          "value_type": "List",
+          "other_class": null,
+          "container": {
+            "value_type": "Vec3"
+          },
+          "map": null
+        },
+        "0xe5f268dd": {
+          "value_type": "Embed",
+          "other_class": "0x68dc32b6",
+          "container": null,
+          "map": null
+        }
+      }
+    },
+    "0x68dc32b6": {
+      "base": null,
+      "secondary_bases": {},
+      "properties": {
+        "0xb4b427aa": {
+          "value_type": "Vec3",
+          "other_class": null,
+          "container": null,
+          "map": null
+        },
+        "0xbc037de7": {
+          "value_type": "Pointer",
+          "other_class": "0x14e6a52c",
+          "container": null,
+          "map": null
+        }
+      }
+    },
+    "0x14e6a52c": {
+      "base": null,
+      "secondary_bases": {},
+      "properties": {}
+    },
+    "0x4300058": {
+      "base": null,
+      "secondary_bases": {},
+      "properties": {
+        "0xb4b427aa": {
+          "value_type": "F32",
+          "other_class": null,
+          "container": null,
+          "map": null
+        },
+        "0xbc037de7": {
+          "value_type": "Pointer",
+          "other_class": "0x5c4922b6",
+          "container": null,
+          "map": null
+        }
+      }
+    },
+    "0x5c4922b6": {
+      "base": null,
+      "secondary_bases": {},
+      "properties": {}
+    },
+    "0x7d3206d": {
+      "base": null,
+      "secondary_bases": {},
+      "properties": {}
+    },
+    "0x9cde442": {
+      "base": null,
+      "secondary_bases": {},
+      "properties": {
+        "0x3bf0b4ed": {
+          "value_type": "Pointer",
+          "other_class": "0x7d3206d",
+          "container": null,
+          "map": null
+        },
+        "0x563d4a22": {
+          "value_type": "Embed",
+          "other_class": "0x68dc32b6",
+          "container": null,
+          "map": null
+        }
+      }
+    },
+    "0x4d3a3598": {
+      "base": "0x14e6a52c",
+      "secondary_bases": {},
+      "properties": {
+        "0x34474c3b": {
+          "other_class": null,
+          "value_type": "List2",
+          "container": {
+            "value_type": "Vec3"
+          },
+          "map": null
+        },
+        "0x5d68eeb5": {
+          "other_class": null,
+          "value_type": "List2",
+          "container": {
+            "value_type": "F32"
+          },
+          "map": null
+        },
+        "0x7c9bcfd5": {
+          "other_class": null,
+          "value_type": "List2",
+          "container": {
+            "value_type": "U8"
+          },
+          "map": null
+        },
+        "0xa7084719": {
+          "other_class": "0x53a6c97e",
+          "value_type": "List",
+          "container": {
+            "value_type": "Pointer"
+          },
+          "map": null
+        }
+      }
+    },
+    "0x53a6c97e": {
+      "base": null,
+      "secondary_bases": {},
+      "properties": {
+        "0x40c351da": {
+          "other_class": null,
+          "value_type": "List",
+          "container": {
+            "value_type": "F32"
+          },
+          "map": null
+        },
+        "0xad345dd6": {
+          "other_class": null,
+          "value_type": "F32",
+          "container": null,
+          "map": null
+        },
+        "0xe44b7382": {
+          "other_class": null,
+          "value_type": "List",
+          "container": {
+            "value_type": "F32"
+          },
+          "map": null
+        }
+      }
+    }
+  }
+}
