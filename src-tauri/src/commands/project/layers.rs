@@ -84,6 +84,11 @@ fn categorize(rel_path: &str, model_dirs: &std::collections::HashSet<String>) ->
     LayerCategory::Other
 }
 
+fn excluded_chroma_path(path: &str) -> bool {
+    let lower = path.replace('\\', "/").to_ascii_lowercase();
+    lower.ends_with(".anm") || has_segment(&lower, "animations") || lower.ends_with(".ritobin")
+}
+
 /// True when `name` is a whole path segment of `path_lower`, so `vfx` does not
 /// match `vfx_textures` and `data` does not match `metadata`.
 fn has_segment(path_lower: &str, name: &str) -> bool {
@@ -181,6 +186,7 @@ pub async fn list_layer_files(
                 Err(_) => continue,
             };
             let path = rel.to_string_lossy().replace('\\', "/");
+            if excluded_chroma_path(&path) { continue; }
             let category = categorize(&path, &model_dirs).as_str();
             files.push(LayerFile {
                 size: entry.metadata().map(|m| m.len()).unwrap_or(0),
@@ -288,8 +294,15 @@ pub async fn create_project_layer(
         let mut bytes_copied = 0u64;
 
         let mut copy_one = |rel: &str| -> Result<(), String> {
+            if excluded_chroma_path(rel) { return Ok(()); }
             let source = source_root.join(rel);
             if !source.is_file() {
+                return Ok(());
+            }
+            let ext = source.extension().and_then(|e| e.to_str()).unwrap_or_default().to_ascii_lowercase();
+            if matches!(ext.as_str(), "tex" | "dds")
+                && crate::commands::assets::file::recolor::skip_chroma_texture(&source)
+                    .map_err(|e| format!("Could not inspect {}: {}", source.display(), e))? {
                 return Ok(());
             }
             let target = dest_root_for_task.join(rel);
@@ -484,6 +497,31 @@ pub async fn list_project_layers(project_path: String) -> Result<Vec<ProjectLaye
 mod tests {
     use super::*;
     use std::collections::HashSet;
+
+    #[tokio::test]
+    async fn chroma_layers_filter_explicit_files_and_category_copies() {
+        let root = tempfile::tempdir().unwrap();
+        let source = root.path().join("content/base/Ahri.wad.client");
+        std::fs::create_dir_all(source.join("Animations")).unwrap();
+        std::fs::write(source.join("Animations/run.bin"), b"animation").unwrap();
+        std::fs::write(source.join("idle.ANM"), b"animation").unwrap();
+        let gray = image::RgbaImage::from_pixel(8, 8, image::Rgba([100, 100, 100, 255]));
+        let color = image::RgbaImage::from_pixel(8, 8, image::Rgba([200, 60, 20, 255]));
+        std::fs::write(source.join("mask.dds"), ritoshark::tex::write_dds_bytes(&gray).unwrap()).unwrap();
+        let colored = ritoshark::tex::write_dds_bytes(&color).unwrap();
+        std::fs::write(source.join("color.dds"), &colored).unwrap(); std::fs::write(source.join("fx_dist.dds"), &colored).unwrap();
+        let project = root.path().to_string_lossy().into_owned();
+        let listed = list_layer_files(project.clone(), "base".into()).await.unwrap();
+        assert!(listed.iter().all(|f| !excluded_chroma_path(&f.path)));
+        let explicit = ["Animations/run.bin", "idle.ANM", "mask.dds", "color.dds", "fx_dist.dds"].iter().map(|p| format!("Ahri.wad.client/{p}")).collect();
+        for (layer, files) in [("explicit", Some(explicit)), ("categories", None)] {
+            let result = create_project_layer(project.clone(), layer.into(), "base".into(), vec!["other".into(), "animation".into()], files, None, None).await.unwrap();
+            assert_eq!(result.files_copied, 1);
+            let target = root.path().join("content").join(layer).join("Ahri.wad.client");
+            assert!(!target.join("Animations").exists()); assert!(!target.join("mask.dds").exists()); assert!(!target.join("fx_dist.dds").exists());
+            assert_eq!(std::fs::read(target.join("color.dds")).unwrap(), colored);
+        }
+    }
 
     fn dirs(items: &[&str]) -> HashSet<String> {
         items.iter().map(|s| s.to_string()).collect()

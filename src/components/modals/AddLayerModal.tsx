@@ -27,7 +27,6 @@ interface CategoryChip {
 
 const CHIPS: CategoryChip[] = [
     { id: 'model',     icon: 'model' },
-    { id: 'animation', icon: 'animation' },
     { id: 'particle',  icon: 'target' },
     { id: 'audio',     icon: 'audio' },
     { id: 'data',      icon: 'bin' },
@@ -474,6 +473,7 @@ export const AddLayerModal: React.FC = () => {
                     </div>
                 </div>
 
+                <p>Animations are excluded. Grayscale, distortion, and cubemap textures are skipped when copying.</p>
                 <div className="dl-modal__foot">
                     <div className="al-summary">
                         {tree && (

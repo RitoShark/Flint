@@ -11,7 +11,6 @@ use std::path::{Path, PathBuf};
 pub struct RecolorFolderResult {
     pub processed: u32,
     pub failed: u32,
-    /// Textures deliberately left alone (cubemaps), not failures.
     pub skipped: u32,
 }
 
@@ -139,7 +138,7 @@ pub async fn recolor_image(
     saturation: f32,
     brightness: f32,
 ) -> Result<(), String> {
-    recolor_single_file(&path, hue, saturation, brightness)
+    recolor_single_file(&path, hue, saturation, brightness, false)
         .await
         .and_then(Outcome::into_result)
 }
@@ -149,6 +148,7 @@ pub async fn recolor_image(
 enum Outcome {
     Written,
     SkippedCubemap,
+    SkippedGrayscale,
 }
 
 const CUBEMAP_MESSAGE: &str =
@@ -157,7 +157,7 @@ const CUBEMAP_MESSAGE: &str =
 impl Outcome {
     fn into_result(self) -> Result<(), String> {
         match self {
-            Outcome::Written => Ok(()),
+            Outcome::Written | Outcome::SkippedGrayscale => Ok(()),
             Outcome::SkippedCubemap => Err(CUBEMAP_MESSAGE.into()),
         }
     }
@@ -169,6 +169,30 @@ impl Outcome {
 fn is_cubemap(data: &[u8]) -> bool {
     ritoshark::tex::dds_is_cubemap(data).unwrap_or(false)
         || ritoshark::tex::dds_surface_count(data).is_ok_and(|faces| faces > 1)
+}
+
+pub(crate) fn is_grayscale_texture(image: &RgbaImage) -> bool {
+    let mut total = 0usize;
+    let mut colorful = 0usize;
+    for pixel in image.pixels().step_by(8) {
+        let [r, g, b, a] = pixel.0;
+        if a < 128 { continue; }
+        total += 1;
+        if r.abs_diff(g).max(g.abs_diff(b)).max(r.abs_diff(b)) > 10 { colorful += 1; }
+    }
+    total == 0 || (colorful as f64 / total as f64) < 0.05
+}
+
+pub(crate) fn is_distortion_texture(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower.contains("distortion") || lower.contains("distort") || lower.contains("distord")
+        || lower.split(|c: char| !c.is_ascii_alphanumeric()).any(|part| part == "dist")
+}
+
+pub(crate) fn skip_chroma_texture(path: &Path) -> Result<bool, String> {
+    if is_distortion_texture(&path.file_name().unwrap_or_default().to_string_lossy()) { return Ok(true); }
+    let Some(texture) = open_editable(path)? else { return Ok(true); };
+    Ok(is_grayscale_texture(&texture.rgba))
 }
 
 struct EditableTexture {
@@ -210,6 +234,7 @@ async fn recolor_single_file(
     hue: f32,
     saturation: f32,
     brightness: f32,
+    skip_grayscale: bool,
 ) -> Result<Outcome, String> {
     let path_buf = PathBuf::from(path);
     if !path_buf.exists() {
@@ -219,6 +244,8 @@ async fn recolor_single_file(
     let Some(mut texture) = open_editable(&path_buf)? else {
         return Ok(Outcome::SkippedCubemap);
     };
+
+    if skip_grayscale && is_grayscale_texture(&texture.rgba) { return Ok(Outcome::SkippedGrayscale); }
 
     apply_hsl_to_image(&mut texture.rgba, hue, saturation, brightness);
 
@@ -315,15 +342,16 @@ pub async fn recolor_folder(
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default().to_lowercase();
 
             // Skip distortion/distort textures - they use special UV effects
-            if should_skip_distortion && (filename.contains("distortion") || filename.contains("distort")) {
+            if should_skip_distortion && is_distortion_texture(&filename) {
                 tracing::debug!("Skipping distortion texture: {}", path.display());
+                if ext == "dds" || ext == "tex" { result.skipped += 1; }
                 continue;
             }
 
             if ext == "dds" || ext == "tex" {
-                match recolor_single_file(&path.to_string_lossy(), hue, saturation, brightness).await {
+                match recolor_single_file(&path.to_string_lossy(), hue, saturation, brightness, true).await {
                     Ok(Outcome::Written) => result.processed += 1,
-                    Ok(Outcome::SkippedCubemap) => result.skipped += 1,
+                    Ok(Outcome::SkippedCubemap | Outcome::SkippedGrayscale) => result.skipped += 1,
                     Err(e) => {
                         tracing::warn!("Failed to recolor {}: {}", path.display(), e);
                         result.failed += 1;
@@ -342,7 +370,7 @@ pub async fn colorize_image(
     target_hue: f32,
     preserve_saturation: bool,
 ) -> Result<(), String> {
-    colorize_single_file(&path, target_hue, preserve_saturation)
+    colorize_single_file(&path, target_hue, preserve_saturation, false)
         .await
         .and_then(Outcome::into_result)
 }
@@ -351,6 +379,7 @@ async fn colorize_single_file(
     path: &str,
     target_hue: f32,
     preserve_saturation: bool,
+    skip_grayscale: bool,
 ) -> Result<Outcome, String> {
     let path_buf = PathBuf::from(path);
     if !path_buf.exists() {
@@ -360,6 +389,8 @@ async fn colorize_single_file(
     let Some(mut texture) = open_editable(&path_buf)? else {
         return Ok(Outcome::SkippedCubemap);
     };
+
+    if skip_grayscale && is_grayscale_texture(&texture.rgba) { return Ok(Outcome::SkippedGrayscale); }
 
     colorize_image_impl(&mut texture.rgba, target_hue, preserve_saturation);
 
@@ -395,15 +426,16 @@ pub async fn colorize_folder(
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or_default().to_lowercase();
 
             // Skip distortion/distort textures - they use special UV effects
-            if should_skip_distortion && (filename.contains("distortion") || filename.contains("distort")) {
+            if should_skip_distortion && is_distortion_texture(&filename) {
                 tracing::debug!("Skipping distortion texture: {}", path.display());
+                if ext == "dds" || ext == "tex" { result.skipped += 1; }
                 continue;
             }
 
             if ext == "dds" || ext == "tex" {
-                match colorize_single_file(&path.to_string_lossy(), target_hue, preserve_saturation).await {
+                match colorize_single_file(&path.to_string_lossy(), target_hue, preserve_saturation, true).await {
                     Ok(Outcome::Written) => result.processed += 1,
-                    Ok(Outcome::SkippedCubemap) => result.skipped += 1,
+                    Ok(Outcome::SkippedCubemap | Outcome::SkippedGrayscale) => result.skipped += 1,
                     Err(e) => {
                         tracing::warn!("Failed to colorize {}: {}", path.display(), e);
                         result.failed += 1;
@@ -420,6 +452,37 @@ pub async fn colorize_folder(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn grayscale_sampling_matches_quartz_threshold_and_alpha_rules() {
+        let mut image = RgbaImage::from_pixel(160, 1, Rgba([100, 100, 100, 255]));
+        assert!(is_grayscale_texture(&image));
+        image.put_pixel(0, 0, Rgba([255, 0, 0, 127]));
+        assert!(is_grayscale_texture(&image));
+        image.put_pixel(0, 0, Rgba([110, 100, 100, 255]));
+        assert!(is_grayscale_texture(&image));
+        image.put_pixel(0, 0, Rgba([111, 100, 100, 128]));
+        assert!(!is_grayscale_texture(&image));
+        assert!(is_grayscale_texture(&RgbaImage::from_pixel(8, 1, Rgba([255, 0, 0, 0]))));
+        for name in ["FX_DIST.dds", "dist_mask.tex", "hero_distord.tex", "distortion.tex"] { assert!(is_distortion_texture(name)); }
+        assert!(!is_distortion_texture("distance.tex"));
+    }
+
+    #[tokio::test]
+    async fn folder_color_operations_leave_masks_and_distortion_bytes_untouched() {
+        let root = tempfile::tempdir().unwrap();
+        let mask = root.path().join("mask.dds");
+        let distortion = root.path().join("hero_dist.dds");
+        let color = root.path().join("color.dds");
+        let gray = write_dds_bytes(&RgbaImage::from_pixel(8, 8, Rgba([100, 100, 100, 255]))).unwrap();
+        let colorful = write_dds_bytes(&RgbaImage::from_pixel(8, 8, Rgba([200, 60, 20, 255]))).unwrap();
+        fs::write(&mask, &gray).unwrap(); fs::write(&distortion, &colorful).unwrap(); fs::write(&color, &colorful).unwrap();
+        let result = recolor_folder(root.path().to_string_lossy().into_owned(), 120.0, 1.0, 1.0, None).await.unwrap();
+        assert_eq!((result.processed, result.skipped, result.failed), (1, 2, 0));
+        let result = colorize_folder(root.path().to_string_lossy().into_owned(), 240.0, false, None).await.unwrap();
+        assert_eq!((result.processed, result.skipped, result.failed), (1, 2, 0));
+        assert_eq!(fs::read(mask).unwrap(), gray); assert_eq!(fs::read(distortion).unwrap(), colorful); assert_ne!(fs::read(color).unwrap(), colorful);
+    }
 
     const FOURCC_OFFSET: usize = 84;
     const LEGACY_HEADER_LEN: usize = 128;

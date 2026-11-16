@@ -47,7 +47,6 @@ export async function recolorImage(
 export interface RecolorFolderResult {
     processed: number;
     failed: number;
-    /** Textures deliberately left alone (cubemaps), not failures. */
     skipped: number;
 }
 

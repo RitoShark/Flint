@@ -115,9 +115,8 @@ const hueToHex = (h: number): string => {
     return `#${hex(r)}${hex(g)}${hex(b)}`;
 };
 
-/* Cubemaps are left alone on purpose — say so rather than letting them look processed. */
 const skippedNote = (result: api.RecolorFolderResult): string =>
-    result.skipped > 0 ? ` ${result.skipped} cubemap${result.skipped === 1 ? '' : 's'} skipped.` : '';
+    result.skipped > 0 ? ` ${result.skipped} texture${result.skipped === 1 ? '' : 's'} skipped.` : '';
 
 export const RecolorModal: React.FC = () => {
     const closeModal = useModalStore((s) => s.closeModal);
@@ -326,7 +325,7 @@ export const RecolorModal: React.FC = () => {
             if (mode === 'hueShift') {
                 if (isFolder) {
                     const result = await api.recolorFolder(absPath, hue, saturation, brightness, skipDistortion);
-                    showToast('success', `Recolored ${result.processed} files. (${result.processed + result.failed} total)${skippedNote(result)}`);
+                    showToast('success', `Recolored ${result.processed} files. (${result.processed + result.failed + result.skipped} total)${skippedNote(result)}`);
                 } else {
                     await api.recolorImage(absPath, hue, saturation, brightness);
                     showToast('success', 'Image recolored successfully');
