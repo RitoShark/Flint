@@ -9,7 +9,8 @@ vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn(async () => () => {}) })
 vi.mock('../../../lib/stores', () => ({ useUxStore: (select: (s: unknown) => unknown) => select({ binEditorSyntaxTheme: 'default' }) }));
 vi.mock('../WorkspaceSearch', () => ({ HitRow: ({ onOpen }: { onOpen: () => void }) => React.createElement('button', { onClick: onOpen }, 'Hit') }));
 vi.mock('../../ui', () => ({
-    Button: ({ children, variant: _variant, size: _size, ...props }: any) => React.createElement('button', props, children),
+    Button: ({ children, variant: _variant, size: _size, active: _active, icon: _icon, ...props }: any) => React.createElement('button', props, children),
+    Icon: () => React.createElement('span'),
     Checkbox: ({ label, ...props }: any) => React.createElement('label', {}, label, React.createElement('input', { ...props, type: 'checkbox' })),
 }));
 import { WadGrepModal } from './WadGrepModal';
@@ -57,6 +58,24 @@ it('opens the matching WAD chunk at its result line', async () => {
     const open = vi.fn(async () => {});
     mount(open);
     fireEvent.click(screen.getByText('Search'));
+    fireEvent.click(await screen.findByRole('button', { name: /Ahri.wad.client/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /data\/skin.bin/ }));
     fireEvent.click(await screen.findByText('Hit'));
     await waitFor(() => expect(open).toHaveBeenCalledWith(file, 42));
+});
+
+it('starts large results collapsed and mounts only visible files after opening a WAD', async () => {
+    const files = Array.from({ length: 1000 }, (_, index) => ({ wad_path: 'Ahri.wad.client', path: `data/skin${index}.bin`, hash: String(index), matches: [{ line: 1, column: 1, length: 3, preview: 'foo' }], extra: 0 }));
+    api.search.mockResolvedValue({ ...empty, files });
+    mount();
+    fireEvent.click(screen.getByText('Search'));
+    const folder = await screen.findByRole('button', { name: /Ahri.wad.client/ });
+    expect(folder.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByText('data/skin0.bin')).toBeNull();
+    expect(screen.queryByText('Hit')).toBeNull();
+    fireEvent.click(folder);
+    expect(await screen.findByText('data/skin0.bin')).toBeTruthy();
+    expect(screen.queryByText('data/skin999.bin')).toBeNull();
+    expect(screen.queryByText('Hit')).toBeNull();
+    expect(document.querySelectorAll('.wad-grep__tree-row').length).toBeLessThan(50);
 });
