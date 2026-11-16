@@ -11,6 +11,7 @@
     "check:ui": "node scripts/check-ui.mjs",
     "check:vfx": "tsc --noEmit",
     "test:vfx": "vitest run src/lib/vfx src/lib/babylon/animationPose.test.ts",
+    "test:bin-issues:browser": "node scripts/bin-issues-smoke.mjs",
     "test:vfx:browser": "node scripts/vfx-smoke.mjs",
     "tauri": "tauri",
     "tauri:shaders": "tauri dev --features shaderforge",

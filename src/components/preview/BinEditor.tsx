@@ -25,7 +25,6 @@ import { fileIssues, issueNeedle, recheckFile } from '../../lib/audit/projectAud
 import { indexNavigable, nextSystem, previousSystem } from '../../lib/editor/binTools/vfxIndex';
 import { SubmeshPicker, type SubmeshPickerRequest } from './SubmeshPicker';
 import { BinIssueModal } from './BinIssueModal';
-import { issueFixKey, planTypeFix } from '../../lib/editor/binTypeFix';
 import { Icon } from '../ui/Icon';
 import { useSearchPanelStore } from '../../lib/stores/searchPanelStore';
 import { projectRootFromFilePath } from '../../lib/wadPath';
@@ -280,17 +279,16 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
        lines they sit on so a crash risk is visible where it is authored. */
     const [auditIssues, setAuditIssues] = useState<api.CheckIssue[]>([]);
     const [auditRevision, setAuditRevision] = useState(0);
-    const [auditIndex, setAuditIndex] = useState(0);
-    const [openIssue, setOpenIssue] = useState<api.CheckIssue | null>(null);
-    const [fixingShapes, setFixingShapes] = useState(false);
-    const shapeFixPending = useRef(false);
-    /* Findings describe the saved file, so one whose retype is already in the buffer would
-       otherwise read as untouched until the next save. */
-    const [appliedFixes, setAppliedFixes] = useState<Set<string>>(() => new Set());
-    const isApplied = useCallback(
-        (issue: api.CheckIssue) => !!issue.fix && appliedFixes.has(issueFixKey(issue.fix)),
-        [appliedFixes],
-    );
+    const [issuesOpen, setIssuesOpen] = useState(false);
+    const [repairBusy, setRepairBusy] = useState(false);
+    const repairPending = useRef(false);
+    const [repairResult, setRepairResult] = useState<api.BinRepairResult | null>(null);
+    const [repairError, setRepairError] = useState<string | null>(null);
+    useEffect(() => {
+        setIssuesOpen(false);
+        setRepairResult(null);
+        setRepairError(null);
+    }, [filePath]);
     /* Bumped when the editor instance is (re)created. The finding ranges are computed
        during render against the live model, which does not exist yet on the render that
        first clears `loading` — without this signal they are silently computed as empty. */
@@ -811,8 +809,6 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             .then((found) => {
                 if (cancelled) return;
                 setAuditIssues(found);
-                setAuditIndex(0);
-                setAppliedFixes(new Set());
             })
             .catch((e) => { console.debug('[bin-editor] audit failed:', e); });
         return () => { cancelled = true; };
@@ -901,81 +897,39 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const goToIssueLine = useCallback((line: number) => {
         const model = editorRef.current?.getModel();
         if (!model || line < 1 || line > model.getLineCount()) return;
-        setOpenIssue(null);
+        setIssuesOpen(false);
         revealAndFlash(new monaco.Range(line, 1, line, model.getLineMaxColumn(line)));
     }, [revealAndFlash]);
 
-    const applyShapeFix = useCallback(async () => {
+    const applyIssueRepairs = useCallback(async (kind: api.BinRepairKind) => {
         const ed = editorRef.current;
         const model = ed?.getModel();
-        if (!ed || !model || shapeFixPending.current) return;
+        if (!ed || !model || repairPending.current) return;
         const version = model.getVersionId();
-        shapeFixPending.current = true;
-        setFixingShapes(true);
+        repairPending.current = true;
+        setRepairBusy(true);
+        setRepairError(null);
+        setRepairResult(null);
         try {
-            const result = await api.fixVfxShapes(model.getValue());
-            if (model.isDisposed() || editorRef.current !== ed || ed.getModel() !== model || model.getVersionId() !== version) {
-                showToast('info', 'The editor changed while checking metadata. Run the fix again.');
+            const result = await api.repairBinIssues(model.getValue(), kind);
+            if (model.isDisposed() || editorRef.current !== ed || ed.getModel() !== model) return;
+            if (model.getVersionId() !== version) {
+                setRepairError('The editor changed while checking metadata. Run the repair again; your edits were kept.');
                 return;
             }
-            if (result.changed === 0) {
-                showToast('info', 'No old VFX shapes need fixing.');
-                return;
+            if (result.report.changed > 0) {
+                ed.pushUndoStop();
+                ed.executeEdits('flint-issue-repairs', [{ range: model.getFullModelRange(), text: result.text }]);
+                ed.pushUndoStop();
             }
-            ed.pushUndoStop();
-            ed.executeEdits('flint-vfx-shape-fix', [{ range: model.getFullModelRange(), text: result.text }]);
-            ed.pushUndoStop();
-            setOpenIssue(null);
-            showToast('success', `Fixed ${result.changed} VFX shapes using metadata ${result.metadata_version}. Save to re-check.`);
+            setRepairResult(result);
         } catch (error) {
-            showToast('error', String(error));
+            if (!model.isDisposed() && editorRef.current === ed && ed.getModel() === model) setRepairError(String(error));
         } finally {
-            shapeFixPending.current = false;
-            setFixingShapes(false);
+            repairPending.current = false;
+            setRepairBusy(false);
         }
-    }, [showToast]);
-
-    /* One edit operation between undo stops, so the whole retype is a single Ctrl+Z. */
-    const applyTypeFix = useCallback((fix: api.TypeFix) => {
-        const ed = editorRef.current;
-        const model = ed?.getModel();
-        if (!ed || !model) return;
-
-        const lineCount = model.getLineCount();
-        const inRange = fix.lines.filter((line) => line >= 1 && line <= lineCount);
-        const plan = planTypeFix(
-            inRange.map((line) => ({ line, content: model.getLineContent(line) })),
-            fix,
-        );
-        const stale = plan.stale.length + (fix.lines.length - inRange.length);
-
-        setOpenIssue(null);
-        if (plan.edits.length === 0) {
-            showToast('info', `${fix.field} no longer declares ${fix.from} where it was checked. Save and let it re-check.`);
-            return;
-        }
-
-        ed.pushUndoStop();
-        ed.executeEdits('flint-type-fix', plan.edits.map((edit) => ({
-            range: new monaco.Range(edit.line, edit.startColumn, edit.line, edit.endColumn),
-            text: edit.text,
-        })));
-        ed.pushUndoStop();
-        setAppliedFixes((applied) => new Set(applied).add(issueFixKey(fix)));
-        revealAndFlash(new monaco.Range(
-            plan.edits[0].line,
-            1,
-            plan.edits[0].line,
-            model.getLineMaxColumn(plan.edits[0].line),
-        ));
-        const where = plan.edits.length === 1 ? '1 line' : `${plan.edits.length} lines`;
-        showToast(
-            'success',
-            stale > 0
-                ? `${fix.field} is now ${fix.to} on ${where}. ${stale} flagged line${stale === 1 ? '' : 's'} had moved and were left alone.`
-                : `${fix.field} is now ${fix.to} on ${where}. Save to re-check.`,
-        );
-    }, [revealAndFlash, showToast]);
+    }, []);
 
     const handleSave = useCallback(async () => {
         if (!useLsp && !bracketStatus.valid) {
@@ -993,6 +947,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
             setWorking('Saving BIN file...');
             await api.saveRitobinToBin(filePath, content);
             setOriginalContent(content);
+            setRepairResult(null);
             setAuditRevision((revision) => revision + 1);
             setReady('Saved');
             showToast('success', 'BIN file saved successfully');
@@ -1441,22 +1396,10 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                     {!useLsp && !bracketLabel && isDirty && (
                         <span className="bin-editor__bracket-ok">Brackets OK</span>
                     )}
-                    {auditIssues.length > 0 && (
-                        <span
-                            className={`bin-editor__audit${auditIssues.some((i) => i.severity === 'critical') ? ' bin-editor__audit--critical' : ''}`}
-                            title={auditIssues
-                                .map((i, n) => `${n + 1}. ${i.line ? `Line ${i.line}: ` : ''}${i.message}${i.expected ? ` (expected ${i.expected})` : ''}`)
-                                .concat(issueRanges.length ? ['', 'Click to step through them.'] : [])
-                                .join('\n')}
-                            onClick={() => {
-                                if (!issueRanges.length) return;
-                                const idx = auditIndex % issueRanges.length;
-                                revealAndFlash(issueRanges[idx].range);
-                                setAuditIndex((idx + 1) % issueRanges.length);
-                            }}
-                        >
-                            {auditIssues.length} {auditIssues.length === 1 ? 'issue' : 'issues'}
-                        </span>
+                    {!useLsp && (
+                        <Button size="sm" variant={auditIssues.length ? 'primary' : 'ghost'} onClick={() => setIssuesOpen(true)} title="Review and repair BIN issues">
+                            Issues {auditIssues.length > 0 ? `(${auditIssues.length})` : ''}
+                        </Button>
                     )}
                 </span>
                 <div className="bin-editor__toolbar-actions">
@@ -1517,51 +1460,17 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 </div>
             </div>
 
-            {!useLsp && auditIssues.length > 0 && (
-                <details className="bin-editor__issues" open>
-                    <summary>
-                        {auditIssues.length} {auditIssues.length === 1 ? 'issue' : 'issues'} in saved file
-                        {isDirty ? ', save to check your changes' : ''}
-                    </summary>
-                    <div className="bin-editor__issues-list">
-                        {auditIssues.map((issue, index) => (
-                            <button
-                                type="button"
-                                key={`${issue.code}-${index}`}
-                                className={`bin-editor__issue bin-editor__issue--${issue.severity}${
-                                    isApplied(issue) ? ' bin-editor__issue--applied' : ''
-                                }`}
-                                onClick={() => setOpenIssue(issue)}
-                            >
-                                <span className="bin-editor__issue-dot" aria-hidden="true" />
-                                <span className="bin-editor__issue-text">{issue.message}</span>
-                                {issue.line !== undefined && (
-                                    <span className="bin-editor__issue-line">
-                                        L{issue.line}
-                                        {issue.fix && issue.fix.lines.length > 1
-                                            ? ` +${issue.fix.lines.length - 1}`
-                                            : ''}
-                                    </span>
-                                )}
-                                {(issue.fix || issue.code === 'bin.old-vfx-shape') && (
-                                    <span className="bin-editor__issue-chip">
-                                        {isApplied(issue) ? 'Changed' : 'Fix'}
-                                    </span>
-                                )}
-                            </button>
-                        ))}
-                    </div>
-                </details>
-            )}
             <BinIssueModal
-                issue={openIssue}
-                applied={!!openIssue && isApplied(openIssue)}
+                open={issuesOpen}
+                issues={auditIssues}
                 dirty={isDirty}
-                onClose={() => setOpenIssue(null)}
+                busy={repairBusy}
+                result={repairResult}
+                error={repairError}
+                onClose={() => setIssuesOpen(false)}
                 onGoToLine={goToIssueLine}
-                onApplyFix={applyTypeFix}
-                onFixShapes={applyShapeFix}
-                fixingShapes={fixingShapes}
+                onRepair={applyIssueRepairs}
+                onSave={() => void handleSave()}
             />
             <div style={{ flex: 1, display: 'flex', minHeight: 0, position: 'relative' }}>
                 <div

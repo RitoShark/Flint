@@ -374,7 +374,7 @@ impl Schema {
             };
             detail.push_str(&format!(" Checked against LeagueToolkit metadata {}, which can be ahead of or behind your game build. That is why this is a warning.", self.version));
             if let Some(blocker) = &blocker {
-                detail.push_str(&format!(" There is no one-click fix here: {blocker}"));
+                detail.push_str(&format!(" A declaration-only edit is insufficient: {blocker} The Issues panel can attempt a value-preserving repair."));
             }
             let lines = text.map(|t| crate::checks::declaration_lines(t, class, &field_name, &got)).unwrap_or_default();
             let fix = (blocker.is_none() && !lines.is_empty()).then(|| TypeFix {
@@ -452,7 +452,7 @@ pub fn current() -> Option<Arc<Schema>> {
 }
 
 /// Safe conversions for generated presets. Never truncate numbers or reinterpret hashes.
-fn adapt_value(value: &mut BinValue, expected: &str) -> Result<(), String> {
+pub(crate) fn adapt_value(value: &mut BinValue, expected: &str) -> Result<(), String> {
     let got = declared_type(value);
     if got == expected { return Ok(()); }
     if let BinValue::String(path) = value {

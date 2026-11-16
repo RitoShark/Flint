@@ -122,3 +122,15 @@ export interface ShapeFixResult {
 export async function fixVfxShapes(text: string): Promise<ShapeFixResult> {
     return invokeCommand('fix_vfx_shapes', { text });
 }
+
+export type BinRepairKind = 'all' | 'types' | 'samplers' | 'shapes' | 'retags';
+
+export interface BinRepairResult {
+    text: string;
+    metadata_version: string;
+    report: { changed: number; repaired: string[]; blocked: string[] };
+}
+
+export async function repairBinIssues(text: string, kind: BinRepairKind): Promise<BinRepairResult> {
+    return invokeCommand('repair_bin_issues', { text, kind });
+}

@@ -34,6 +34,7 @@ pub struct Migration {
     pub conversion: Conversion,
     /// The retired class an embed retag matches on.
     pub from_class: Option<u32>,
+    pub to_class: Option<u32>,
     /// Ritobin spelling of the type the field carried before, e.g. `string`.
     pub from_type: String,
     /// Ritobin spelling of the type the client reads now, e.g. `file`.
@@ -118,6 +119,7 @@ fn parse() -> HashMap<u64, Migration> {
                 field: row.field.clone(),
                 conversion,
                 from_class: row.from.class.as_deref().and_then(token),
+                to_class: row.to.class.as_deref().and_then(token),
                 from_type: ritobin_type(&row.from),
                 to_type: ritobin_type(&row.to),
             },

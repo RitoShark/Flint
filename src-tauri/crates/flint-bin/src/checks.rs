@@ -819,7 +819,7 @@ pub fn check_bin_hazards(bin: &Bin, rel: &str, text: Option<&str>) -> Vec<CheckI
             "bin.gameplay-entry",
             rel,
             format!(
-                "Ships gameplay entries ({}). These duplicate the champion's base data and go stale on every patch — the usual cause of a mod that crashes or misbehaves right after an update. Hematite's `champion_bin_remover` deletes files like this.",
+                "Ships gameplay entries ({}). These duplicate the champion's base data and go stale on every patch — the usual cause of a mod that crashes or misbehaves right after an update. Review whether this base-data BIN should be included in the mod.",
                 gameplay.join(", "),
             ),
         ));
@@ -854,7 +854,7 @@ pub fn check_bin_hazards(bin: &Bin, rel: &str, text: Option<&str>) -> Vec<CheckI
             "bin.stale-sampler-field",
             rel,
             format!(
-                "{samplers} material sampler{} use retired field names (samplerName, or a path in textureName). The client reads texturePath now, so the model renders white/chrome. Hematite's staticmat fixes rename them.",
+                "{samplers} material sampler{} use retired field names (samplerName, or a path in textureName). The client reads texturePath now, so the model renders white/chrome. The Issues panel can repair these fields using class metadata.",
                 if samplers == 1 { "" } else { "s" },
             ),
         )
@@ -929,17 +929,17 @@ fn migration_issue(m: &Migration, file: &str, hit: &MigrationHit) -> CheckIssue 
         Conversion::Rehash => (
             "bin.hash-ref-not-migrated",
             format!("{} is declared `hash`, the client reads `file` ({occurrences})", m.label),
-            "The client reads an xxh64 `file` here now. An fnv1a `hash` cannot be converted to one mechanically, because the path it stood for is not recoverable from the hash. Repoint the field at its path instead.".to_string(),
+            "The client reads an xxh64 `file` here now. The path is not recoverable from the hash alone. Repair field types recovers the original path from known hash names and rehashes it. If the path is unknown, restore the intended asset path first.".to_string(),
         ),
         Conversion::HashKey => (
             "bin.hash-ref-not-migrated",
             format!("{} is keyed by `hash`, the client keys by `file` ({occurrences})", m.label),
-            "The client keys this map by xxh64 `file` now. An fnv1a `hash` key cannot be converted to one mechanically, because the path it stood for is not recoverable from the hash. Re-key the map by path instead.".to_string(),
+            "The client keys this map by xxh64 `file` now. Repair field types can re-key it when every original path is known and the new keys stay unique. Unresolved maps remain unchanged.".to_string(),
         ),
         Conversion::Retag => (
             "bin.embed-retagged",
             format!("{} carries the retired embed layout ({occurrences})", m.label),
-            "Riot changed this type's tag and class, so the client no longer reads the embed at all. Rebuild it as the current class; retyping the declaration is not enough.".to_string(),
+            "Riot changed this type tag or class. Migrate known classes applies the published migration only when the loaded metadata accepts all existing fields.".to_string(),
         ),
     };
     let fix = matches!(m.conversion, Conversion::HashValue)

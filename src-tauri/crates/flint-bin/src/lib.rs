@@ -8,6 +8,7 @@ pub mod checks;
 pub mod codec;
 pub mod concat;
 pub mod migration;
+pub mod repair;
 pub mod meta_schema;
 pub mod names;
 pub mod converter;

@@ -152,121 +152,35 @@
   overflow: hidden;
   font-size: var(--text-sm);
 }
-.bin-editor__issues {
-    flex-shrink: 0;
-    border-bottom: 1px solid var(--border);
-    padding: 8px 12px;
-    font-size: var(--text-xs);
-}
-.bin-editor__issues summary { cursor: pointer; color: var(--text-secondary); }
-.bin-editor__issues-list {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    margin-top: 6px;
-    max-height: 180px;
-    overflow: auto;
-}
-.bin-editor__issue {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-    padding: 5px 8px;
-    border: 0;
-    border-radius: 4px;
-    background: transparent;
-    color: var(--text-primary);
-    font: inherit;
-    text-align: left;
-    cursor: pointer;
-}
-.bin-editor__issue:hover { background: var(--bg-hover); }
-.bin-editor__issue-dot {
-    flex: 0 0 auto;
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--color-warning);
-}
-.bin-editor__issue--critical .bin-editor__issue-dot { background: var(--color-danger); }
-.bin-editor__issue-text {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.bin-editor__issue-line,
-.bin-editor__issue-chip {
-    flex: 0 0 auto;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    height: 18px;
-    padding: 0 6px;
-    border-radius: 3px;
-    font-size: 11px;
-}
-.bin-editor__issue-line {
-    background: var(--bg-tertiary);
-    color: var(--text-secondary);
-    font-variant-numeric: tabular-nums;
-}
-.bin-editor__issue-chip {
-    border: 1px solid var(--accent-primary);
-    color: var(--accent-primary);
-}
-.bin-editor__issue--applied .bin-editor__issue-text { color: var(--text-muted); }
-.bin-editor__issue--applied .bin-editor__issue-dot { background: var(--color-success); }
-.bin-editor__issue--applied .bin-editor__issue-chip {
-    border-color: var(--color-success);
-    color: var(--color-success);
-}
-
-.bin-issue__meta {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 10px;
-}
-.bin-issue__severity {
-    display: inline-flex;
-    align-items: center;
-    height: 20px;
-    padding: 0 8px;
-    border-radius: 10px;
-    background: var(--bg-tertiary);
-    color: var(--color-warning);
-    font-size: 11px;
-}
-.bin-issue__severity--critical { color: var(--color-danger); }
-.bin-issue__code { color: var(--text-muted); font-size: 11px; }
-.bin-issue__detail { margin: 0 0 12px; line-height: 1.55; }
-.modal--bin-issue .modal__title { overflow-wrap: anywhere; }
-.modal--bin-issue .asset-paths { margin-bottom: 16px; }
-.bin-issue__diff {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    padding: 8px;
-    border-radius: 4px;
-    background: var(--bg-tertiary);
-}
-.bin-issue__diff-row { display: flex; align-items: center; gap: 8px; }
-.bin-issue__diff-mark {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 30px;
-    height: 18px;
-    border-radius: 3px;
-    background: var(--bg-secondary);
-    color: var(--text-muted);
-    font-size: 10px;
-    text-transform: uppercase;
-}
-.bin-issue__diff-row--to .bin-issue__diff-mark { color: var(--color-success); }
-.bin-issue__diff-row--from code { color: var(--text-secondary); text-decoration: line-through; }
-.bin-issue__where { margin: 10px 0 0; color: var(--text-secondary); }
+.bin-issue__code { color: var(--text-muted); font-size: var(--text-xs); }
 .bin-issue__note { color: var(--text-secondary); font-size: var(--text-xs); }
+
+.modal--bin-issues { width: min(1080px, 94vw); }
+.modal--bin-issues .modal__body { overflow: auto; }
+.bin-issues__toolbar { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; }
+.bin-issues__toolbar input { flex: 1; min-width: 160px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-tertiary); color: var(--text-primary); }
+.bin-issues__filters, .bin-issues__actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bin-issues__layout { display: grid; grid-template-columns: minmax(240px, 2fr) minmax(280px, 3fr); min-height: 260px; height: min(48vh, 520px); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.bin-issues__list { overflow: auto; padding: 8px; border-right: 1px solid var(--border); }
+.bin-issues__item { display: flex; align-items: flex-start; flex-direction: column; gap: 6px; width: 100%; height: auto; padding: 12px; text-align: left; white-space: normal; margin-bottom: 4px; }
+.bin-issues__item--selected { background: var(--bg-tertiary); box-shadow: inset 3px 0 var(--accent-primary); }
+.bin-issues__message { line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.bin-issues__severity, .bin-issues__action-label { font-size: var(--text-xs); }
+.bin-issues__severity--warning { color: var(--color-warning); }
+.bin-issues__severity--critical, .bin-issues__error { color: var(--color-danger); }
+.bin-issues__action-label { color: var(--text-secondary); }
+.bin-issues__detail { padding: 20px; overflow: auto; overflow-wrap: anywhere; }
+.bin-issues__detail h3 { font-size: var(--text-sm); line-height: 1.5; margin: 10px 0; }
+.bin-issues__detail p { line-height: 1.6; color: var(--text-secondary); }
+.bin-issues__detail details { margin-bottom: 16px; }
+.bin-issues__actions { margin-top: 20px; }
+.bin-issues__empty { padding: 16px; color: var(--text-secondary); }
+.bin-issues__result { display: flex; flex-direction: column; gap: 6px; padding: 12px; margin-bottom: 14px; background: var(--bg-tertiary); border: 1px solid var(--border); border-radius: 6px; max-height: 180px; overflow: auto; overflow-wrap: anywhere; }
+.bin-issues__result span { color: var(--text-secondary); font-size: var(--text-xs); }
+.bin-issues__result ul { margin: 8px 0; padding-left: 20px; }
+@media (max-width: 720px) {
+    .bin-issues__layout { grid-template-columns: 1fr; height: auto; }
+    .bin-issues__list { max-height: 24vh; border-right: 0; border-bottom: 1px solid var(--border); }
+    .bin-issues__detail { max-height: 32vh; padding: 14px; }
+    .modal--bin-issues .modal__footer { flex-wrap: wrap; gap: 12px; }
+}
