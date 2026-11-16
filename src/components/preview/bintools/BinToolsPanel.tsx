@@ -57,7 +57,7 @@ export const BinToolsPanel: React.FC<BinToolsPanelProps> = ({
             {isSkin && <IdleParticlesSection content={settled} onApply={apply} />}
             {isSkin && <PersistentVfxSection content={settled} onApply={apply} />}
             {hasVfxEmitters(settled) && <VfxSection editorRef={editorRef} />}
-            <VfxIndexSection content={settled} editorRef={editorRef} />
+            <VfxIndexSection content={settled} editorRef={editorRef} onApply={apply} />
         </div>
     );
 };

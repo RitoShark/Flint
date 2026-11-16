@@ -221,6 +221,20 @@
 
 .bin-tools__index-line { flex-shrink: 0; font-family: var(--font-mono); font-size: 10px; color: var(--text-muted); }
 
+.bin-tools__index-group {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 6px 2px;
+  color: var(--text-primary);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.bin-tools__push { margin-left: auto; }
+
 .bin-tools__glyph {
   display: flex;
   align-items: center;

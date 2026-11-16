@@ -271,6 +271,7 @@ export const de: TranslationDict = {
     'contextMenu.splitBins': 'BINs nach Klassen aufteilen…',
     'contextMenu.splitBin': 'BIN nach Klassen aufteilen…',
     'contextMenu.organizeVfx': 'VFX organisieren (automatisch zusammenführen)…',
+    'contextMenu.orderVfxBySkill': 'VFX nach Fähigkeit sortieren…',
     'contextMenu.checkFiles': 'Dateien prüfen',
     'contextMenu.fileTransform': 'Dateitransformation',
     'contextMenu.convertToDds': 'In .dds konvertieren',

@@ -89,3 +89,27 @@ export async function organizeBinsVfx(
 ): Promise<BinOrganizeResult> {
     return invokeCommand('organize_bins_vfx', { folderPath, ownerPath, vfxFilename });
 }
+
+export interface SortVfxReport {
+    systems: number;
+    moved: number;
+    passive: number;
+    basic_attack: number;
+    q: number;
+    w: number;
+    e: number;
+    r: number;
+    miscellaneous: number;
+}
+
+export interface SortVfxFolderResult {
+    files_scanned: number;
+    files_with_vfx: number;
+    files_changed: string[];
+    failed: string[];
+    totals: SortVfxReport;
+}
+
+export async function sortBinsVfxBySkill(path: string): Promise<SortVfxFolderResult> {
+    return invokeCommand('sort_bins_vfx_by_skill', { path });
+}

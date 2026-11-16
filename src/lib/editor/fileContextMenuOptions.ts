@@ -295,6 +295,44 @@ export function buildFileContextMenuOptions(args: BuildOptionsArgs): ContextMenu
                     }
                 },
             });
+            binTools.push({
+                label: t('contextMenu.orderVfxBySkill'),
+                icon: getIcon('layerText'),
+                onClick: () => {
+                    const folderAbs = fullPath.replace(/\//g, '\\');
+                    openConfirmDialog({
+                        title: t('contextMenu.orderVfxBySkill').replace(/…|\.\.\./g, ''),
+                        message:
+                            'Reorder the VfxSystemDefinitionData entries in every BIN under this folder ' +
+                            'by skill (Passive, Basic Attack, Q, W, E, R, Misc), alphabetical within each skill. ' +
+                            'Other entries keep their positions. Continue?',
+                        confirmLabel: t('common.apply'),
+                        onConfirm: async () => {
+                            try {
+                                const result = await api.sortBinsVfxBySkill(folderAbs);
+                                const changed = result.files_changed.length;
+                                if (result.failed.length > 0) {
+                                    showToast('warning', `Reordered ${changed} BIN file${changed === 1 ? '' : 's'}; ${result.failed.length} failed. See the log for details`);
+                                } else if (result.totals.systems === 0) {
+                                    showToast('info', 'No VFX systems found in this folder');
+                                } else if (changed === 0) {
+                                    showToast('info', `Already ordered by skill (${result.totals.systems} systems)`);
+                                } else {
+                                    showToast(
+                                        'success',
+                                        `Reordered ${result.totals.moved} VFX system${result.totals.moved === 1 ? '' : 's'} ` +
+                                        `across ${changed} BIN${changed === 1 ? '' : 's'}`,
+                                    );
+                                }
+                                await refreshFileTree();
+                            } catch (e) {
+                                const m = (e as { message?: string })?.message ?? String(e);
+                                showToast('error', `Order by skill failed: ${m}`);
+                            }
+                        },
+                    });
+                },
+            });
 
             options.push({
                 label: t('contextMenu.binTools'),

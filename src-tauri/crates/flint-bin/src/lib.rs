@@ -13,6 +13,7 @@ pub mod names;
 pub mod converter;
 pub mod paint;
 pub mod preloads;
+pub mod sort_vfx;
 pub mod split;
 pub mod texture_header;
 
@@ -55,3 +56,4 @@ pub use names::{
 pub use texture_header::{read_texture_header, TextureContainer, TextureHeader};
 pub use preloads::extra_character_preloads;
 pub use paint::has_vfx_content;
+pub use sort_vfx::{sort_vfx_systems, SortVfxReport};
