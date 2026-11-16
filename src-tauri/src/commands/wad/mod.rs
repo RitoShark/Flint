@@ -9,3 +9,5 @@ pub mod extract_hashes;
 pub mod wad_pack;
 
 pub use wad::*;
+
+pub mod grep;

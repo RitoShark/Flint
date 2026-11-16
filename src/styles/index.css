@@ -24,6 +24,7 @@
 @import './features/asset-tooltip.css';
 @import './features/bin-editor.css';
 @import './features/bin-tools.css';
+@import './features/wad-tools.css';
 @import './features/browse-wad.css';
 @import './features/cdn.css';
 @import './features/champion-picker.css';

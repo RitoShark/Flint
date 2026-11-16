@@ -48,7 +48,7 @@ pub struct ReplaceResult {
     pub failed: Vec<String>,
 }
 
-fn build_regex(query: &str, options: &SearchOptions) -> Result<Regex, String> {
+pub(crate) fn build_regex(query: &str, options: &SearchOptions) -> Result<Regex, String> {
     let body = if options.regex {
         query.to_string()
     } else {
@@ -71,7 +71,7 @@ fn word_bounded(line: &str, start: usize, end: usize) -> bool {
     before_ok && after_ok
 }
 
-fn search_in_text(text: &str, pattern: &Regex, whole_word: bool) -> (Vec<SearchMatch>, usize) {
+pub(crate) fn search_in_text(text: &str, pattern: &Regex, whole_word: bool) -> (Vec<SearchMatch>, usize) {
     let mut matches = Vec::new();
     let mut extra = 0usize;
 

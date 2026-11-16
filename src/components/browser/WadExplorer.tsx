@@ -1,4 +1,5 @@
 import { Button } from '../ui/Button';
+import { Icon } from '../ui/Icon';
 import React, {
     useState, useCallback, useDeferredValue, useEffect, useRef, useMemo,
 } from 'react';
@@ -34,6 +35,8 @@ import { QuickActionPanel, WadListSkeleton } from './wad-explorer/QuickActionPan
 import { ExtractOverlay } from './wad-explorer/ExtractOverlay';
 import { startWadIndexing } from './wad-explorer/indexWads';
 import { useTranslation } from '../../lib/i18n';
+import { useSendToProject } from './wad-explorer/SendToProjectModal';
+import { useWadGrep } from './wad-explorer/useWadGrep';
 import { toPosix } from '../../lib/pathIdentity';
 
 export const WadExplorer: React.FC = () => {
@@ -67,6 +70,7 @@ export const WadExplorer: React.FC = () => {
         });
     }, []);
 
+    const sendToProject = useSendToProject();
     const [showCheatSheet, setShowCheatSheet] = useState(false);
     const [highlightedKey, setHighlightedKey] = useState<string | null>(null);
     const [focusedKey, setFocusedKey] = useState<string | null>(null);
@@ -76,6 +80,15 @@ export const WadExplorer: React.FC = () => {
     const flatRowsRef = useRef<FlatRow[] | null>(null);
 
     const [inputValue, setInputValue] = useState(() => useWadExplorerStore.getState().searchQuery);
+    const grep = useWadGrep((wadPath, filePath) => {
+        setInputValue('');
+        useWadExplorerStore.getState().setSearch('');
+        pendingNavRef.current = { wadPath, filePath, phase: 'file' };
+        const state = useWadExplorerStore.getState();
+        if (!state.expandedWads.has(wadPath)) state.toggleWad(wadPath);
+        setCollapsedCategories(new Set());
+        requestAnimationFrame(() => processNavigation());
+    });
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const searchRef = useRef<HTMLInputElement>(null);
 
@@ -490,6 +503,10 @@ export const WadExplorer: React.FC = () => {
 
         const options: ContextMenuOption[] = [];
 
+        options.push({ label: 'Check File References', icon: getIcon('search'), onClick: () => grep.open({ wadPath, query: chunk.path ?? `0x${chunk.hash}`, references: true }) });
+
+        options.push({ label: 'Add to Project...', icon: getIcon('plus'), onClick: () => sendToProject.open({ wadPath, hashes: [chunk.hash], label: chunk.path ?? chunk.hash }) });
+
         const skinBin = chunk.path ? parseSkinBinPath(chunk.path) : null;
         if (skinBin) {
             options.push({
@@ -593,6 +610,7 @@ export const WadExplorer: React.FC = () => {
         };
 
         const options: ContextMenuOption[] = [];
+        options.push({ label: 'Add to Project...', icon: getIcon('plus'), onClick: () => sendToProject.open({ wadPath, hashes, label: folder.name }) });
         options.push({
             label: folderCheckState === 'all' ? 'Uncheck All in Folder' : 'Check All in Folder',
             icon: getIcon(folderCheckState === 'all' ? 'close' : 'check'),
@@ -1403,6 +1421,7 @@ export const WadExplorer: React.FC = () => {
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
                         <span dangerouslySetInnerHTML={{ __html: getIcon('wad') }} />
                         <span style={{ fontSize: '12px', fontWeight: 600, flex: 1 }}>{t('wadExplorer.title')}</span>
+                        <Button size="sm" variant="ghost" iconOnly title="Search WAD contents" aria-label="Search WAD contents" onClick={() => grep.open({ wadPath: wadExplorer.selected?.wadPath })}><Icon name="search" /></Button>
                         <Button
                             size="sm"
                             variant="ghost"
@@ -1589,6 +1608,7 @@ export const WadExplorer: React.FC = () => {
                         key={`${wadExplorer.selected.wadPath}::${wadExplorer.selected.hash}`}
                         wadPath={wadExplorer.selected.wadPath}
                         chunk={selectedChunk}
+                        revealLine={grep.line}
                         onClose={() => useWadExplorerStore.getState().setSelected(null, null)}
                     />
                 ) : (
@@ -1624,6 +1644,8 @@ export const WadExplorer: React.FC = () => {
             />
         )}
 
+        {grep.modal}
+        {sendToProject.modal}
         {extractProgress?.visible && (
             <ExtractOverlay progress={extractProgress} />
         )}

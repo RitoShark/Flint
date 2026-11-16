@@ -10,7 +10,7 @@ import {
 registerRitobinLanguage(monaco as any);
 registerRitobinTheme(monaco as any);
 
-export const MonacoBinViewer: React.FC<{ text: string }> = ({ text }) => {
+export const MonacoBinViewer: React.FC<{ text: string; revealLine?: number }> = ({ text, revealLine }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
 
@@ -50,10 +50,17 @@ export const MonacoBinViewer: React.FC<{ text: string }> = ({ text }) => {
         }
     }, [text]);
 
+    useEffect(() => {
+        if (revealLine && editorRef.current) {
+            editorRef.current.setPosition({ lineNumber: revealLine, column: 1 });
+            editorRef.current.revealLineInCenter(revealLine);
+        }
+    }, [text, revealLine]);
+
     return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />;
 };
 
-export const MonacoTextViewer: React.FC<{ text: string; language: string }> = ({ text, language }) => {
+export const MonacoTextViewer: React.FC<{ text: string; language: string; revealLine?: number }> = ({ text, language, revealLine }) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
 
@@ -92,6 +99,13 @@ export const MonacoTextViewer: React.FC<{ text: string; language: string }> = ({
             }
         }
     }, [text]);
+
+    useEffect(() => {
+        if (revealLine && editorRef.current) {
+            editorRef.current.setPosition({ lineNumber: revealLine, column: 1 });
+            editorRef.current.revealLineInCenter(revealLine);
+        }
+    }, [text, revealLine]);
 
     return <div ref={containerRef} style={{ width: '100%', height: '100%' }} />;
 };

@@ -1,0 +1,13 @@
+.wad-grep .dl-modal__body { display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.wad-grep form { display: flex; flex-direction: column; gap: 10px; }
+.wad-grep .dl-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.wad-grep .dl-input { flex: 1; width: auto; min-width: 160px; }
+.wad-grep .dl-select { width: auto; }
+.wad-grep .ws-search__results { max-height: 50vh; min-height: 100px; }
+.wad-grep__file { padding: 8px 0; overflow-wrap: anywhere; cursor: pointer; color: var(--text-primary); }
+.wad-grep p, .wad-project-picker p { margin: 0; color: var(--text-secondary); overflow-wrap: anywhere; }
+.wad-grep [role="alert"], .wad-project-picker [role="alert"] { color: var(--status-error); }
+.wad-grep [role="status"] { font-size: 12px; }
+.wad-project-picker .dl-modal__body { display: flex; flex-direction: column; gap: 14px; }
+.wad-project-picker .dl-row { display: flex; flex-direction: column; align-items: stretch; gap: 6px; }
+.wad-project-picker .dl-select { max-width: 100%; }

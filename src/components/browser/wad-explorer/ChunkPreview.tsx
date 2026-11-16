@@ -33,7 +33,8 @@ export const ChunkPreview: React.FC<{
     onClose: () => void;
     /** When set, inner bytes are read through this source (e.g. a CDN session). */
     dataSource?: WadDataSource;
-}> = ({ wadPath, chunk, onClose, dataSource }) => {
+    revealLine?: number;
+}> = ({ wadPath, chunk, onClose, dataSource, revealLine }) => {
     const showToast = useNotificationStore((s) => s.showToast);
     const [data, setData] = useState<PreviewData | null>(null);
     const [loading, setLoading] = useState(true);
@@ -238,19 +239,19 @@ export const ChunkPreview: React.FC<{
 
                     if (text !== null) {
                         if (fileType === 'application/x-bin') {
-                            return <MonacoBinViewer text={text} />;
+                            return <MonacoBinViewer revealLine={revealLine} text={text} />;
                         }
                         if (fileType === 'application/x-luabin') {
-                            return <MonacoTextViewer text={text} language="lua" />;
+                            return <MonacoTextViewer revealLine={revealLine} text={text} language="lua" />;
                         }
                         if (fileType === 'application/x-troybin') {
-                            return <MonacoTextViewer text={text} language="ini" />;
+                            return <MonacoTextViewer revealLine={revealLine} text={text} language="ini" />;
                         }
                         if (fileType === 'application/x-inibin') {
-                            return <MonacoTextViewer text={text} language="json" />;
+                            return <MonacoTextViewer revealLine={revealLine} text={text} language="json" />;
                         }
                         if (fileType === 'application/x-rst') {
-                            return <MonacoTextViewer text={text} language="json" />;
+                            return <MonacoTextViewer revealLine={revealLine} text={text} language="json" />;
                         }
 
                         let lang = 'plaintext';
@@ -260,7 +261,7 @@ export const ChunkPreview: React.FC<{
                         else if (fileName.endsWith('.py')) lang = 'python';
                         else if (fileName.endsWith('.ini')) lang = 'ini';
 
-                        return <MonacoTextViewer text={text} language={lang} />;
+                        return <MonacoTextViewer revealLine={revealLine} text={text} language={lang} />;
                     }
 
                     if (meshKind) {

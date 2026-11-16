@@ -34,7 +34,7 @@ function folderOf(path: string): string {
    itself rather than relying on the editor having done it. Idempotent. */
 registerRitobinLanguage(monaco);
 
-const HitRow: React.FC<{
+export const HitRow: React.FC<{
     hit: api.BinSearchMatch;
     presetId: string;
     onOpen: () => void;
