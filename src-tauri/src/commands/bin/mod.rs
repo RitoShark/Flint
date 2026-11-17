@@ -14,4 +14,6 @@ pub use bin::*;
 
 pub mod voice;
 
+pub mod vfx_port;
+
 mod persist;

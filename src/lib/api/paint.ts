@@ -192,3 +192,7 @@ export async function paintIsDirty(sessionId: number): Promise<boolean> {
 export async function paintSave(sessionId: number): Promise<PaintSaveResult> {
     return invokeCommand<PaintSaveResult>('paint_save', { sessionId });
 }
+
+export function paintSetEmitterColor(sessionId: number, emitterKey: string, slot: Exclude<ColorTargetId, 'all'>, index: number, color: [number, number, number, number]): Promise<VfxModel> {
+    return invokeCommand('paint_set_emitter_color', { sessionId, emitterKey, slot, index, color });
+}

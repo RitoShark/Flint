@@ -3,12 +3,17 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as api from '../../../lib/api';
 import { useNotificationStore } from '../../../lib/stores';
 import { requestRevealText } from '../../../lib/editor/binEditorEvents';
+import { PaletteControls } from './PaletteControls';
 import { PaletteBar } from './PaletteBar';
 import { DlSelect } from '../../ui/design-lab/DlSelect';
+import { VfxPortModal } from './VfxPortModal';
+import { ColorValueEditor } from './ColorValueEditor';
 import { SystemList } from './SystemList';
 import type { Vec4 } from '../../../lib/paint/colorMath';
 import type {
     ColorTargetId,
+    RecolorModeId,
+    PaletteStopInput,
     EmitterColors,
     VfxModel,
 } from '../../../lib/api/paint';
@@ -32,6 +37,9 @@ const SLOTS: Array<{ id: Exclude<ColorTargetId, 'all'>; label: string; title: st
 export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClose }) => {
     const showToast = useNotificationStore((s) => s.showToast);
 
+    const [portOpen, setPortOpen] = useState(false);
+    const [reload, setReload] = useState(0);
+    const [editingColor, setEditingColor] = useState<{ emitterKey: string; slot: keyof EmitterColors } | null>(null);
     const [sessionId, setSessionId] = useState<number | null>(null);
     const [model, setModel] = useState<VfxModel | null>(null);
     const [loading, setLoading] = useState(true);
@@ -45,6 +53,10 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
     const [expandedMaterials, setExpandedMaterials] = useState<Set<string>>(new Set());
     const [searchQuery, setSearchQuery] = useState('');
 
+    const [mode, setMode] = useState<RecolorModeId>('shift-hue');
+    const [palette, setPalette] = useState<PaletteStopInput[]>([{ vec4: [1,0,0,1], time: 0 }, { vec4: [0,0,1,1], time: 1 }]);
+    const [shift, setShift] = useState<[number,number,number]>([0,0,0]);
+    const [recoloring, setRecoloring] = useState(false);
     const [hueTarget, setHueTarget] = useState(0);
     const [targets, setTargets] = useState<Set<ColorTargetId>>(
         new Set<ColorTargetId>(['color', 'birthColor', 'fresnelColor', 'lingerColor']),
@@ -70,6 +82,7 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
             sessionRef.current = null;
         }
 
+        setEditingColor(null);
         setSessionId(null);
         setLoading(true);
         setError(null);
@@ -102,7 +115,7 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
         return () => {
             cancelled = true;
         };
-    }, [binPath]);
+    }, [binPath, reload]);
 
     // Close the live session when the panel goes away for good.
     useEffect(
@@ -273,7 +286,20 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
     }, []);
 
     const handleRecolor = useCallback(async () => {
-        if (sessionId === null) return;
+        if (sessionId === null || recoloring) return;
+        if (mode === 'materials') {
+            const params = model?.materials.flatMap(m => m.colorParams).filter(p => selection.has(p.selectionKey)) || [];
+            if (!params.length) { showToast('info', 'Select material color parameters to apply the palette.'); return; }
+            setRecoloring(true);
+            try {
+                const result = await api.paintRecolor(sessionId, params.map(p => p.selectionKey), ['all'], palette,
+                    { mode, preserveAlpha, ignoreBlackWhite, seed: Math.floor(Math.random() * 0xffffffff) });
+                if (sessionRef.current !== sessionId) return;
+                setModel(await api.paintModel(sessionId));
+                if (result.changed) setDirty(true);
+            } catch (e) { showToast('error', String(e)); } finally { setRecoloring(false); }
+            return;
+        }
         if (selectedEmitterKeys.length === 0) {
             showToast('info', 'Select at least one emitter to recolor.');
             return;
@@ -283,15 +309,16 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
             showToast('info', 'Enable at least one color target.');
             return;
         }
+        setRecoloring(true);
         try {
             const res = await api.paintRecolor(
                 sessionId,
                 selectedEmitterKeys,
                 targetList,
-                // Hue-target mode never samples the palette.
-                [],
-                { mode: 'shift-hue', ignoreBlackWhite, preserveAlpha, hueTarget },
+                [...palette].sort((a,b) => a.time - b.time),
+                { mode, ignoreBlackWhite, preserveAlpha, hueTarget, hslShift: shift, seed: Math.floor(Math.random() * 0xffffffff) },
             );
+            if (sessionRef.current !== sessionId) return;
             if (res.changed === 0) {
                 showToast('info', 'Nothing changed — try disabling "Ignore B/W".');
                 return;
@@ -301,9 +328,10 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
             showToast('success', `Recolored ${res.changed} color group(s)`);
         } catch (e) {
             showToast('error', e instanceof Error ? e.message : String(e));
-        }
+        } finally { setRecoloring(false); }
     }, [
         sessionId,
+        mode, palette, shift, selection, model, recoloring,
         selectedEmitterKeys,
         targets,
         ignoreBlackWhite,
@@ -454,10 +482,12 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
 
     return (
         <div className="paint-panel">
-            <PaletteBar hueTarget={hueTarget} onHueTargetChange={setHueTarget} />
+            <PaletteControls mode={mode} onMode={setMode} palette={palette} onPalette={setPalette} shift={shift} onShift={setShift} />
+            {mode === 'shift-hue' && <PaletteBar hueTarget={hueTarget} onHueTargetChange={setHueTarget} />}
 
             {/* Blend-mode selector + color-target toggles. */}
             <div className="paint-toolbar">
+                <Button size="sm" disabled={dirty || saving || recoloring} title={dirty ? 'Save recolor changes before importing VFX' : 'Import systems and assets from another project'} onClick={() => setPortOpen(true)}>Import VFX...</Button>
                 <div className="paint-toolbar__group">
                     <span className="paint-toolbar__label">BM</span>
                     <DlSelect
@@ -558,10 +588,25 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
                 onToggleMaterialExpand={toggleMaterialExpand}
                 onSetBlendMode={handleSetBlendMode}
                 onSetMaterialParam={handleSetMaterialParam}
+                onEditColor={(emitterKey, slot) => setEditingColor({ emitterKey, slot })}
                 onPickHue={pickHueFrom}
                 onRevealInText={revealInText}
             />
 
+            {portOpen && <VfxPortModal target={binPath} onClose={() => setPortOpen(false)} onImported={() => { setPortOpen(false); setReload(v => v + 1); onSaved?.(); }} />}
+            {editingColor && (() => {
+                const emitter = model.emitters.find(e => e.key === editingColor.emitterKey);
+                const colors = emitter?.colors[editingColor.slot]?.keyframes;
+                if (!colors?.length) return null;
+                return <ColorValueEditor key={`${editingColor.emitterKey}:${editingColor.slot}`} title={`${emitter!.name} / ${editingColor.slot}`}
+                    colors={colors} onClose={() => setEditingColor(null)} onApply={async (index, color) => {
+                        const id = sessionRef.current;
+                        if (id === null) return;
+                        const next = await api.paintSetEmitterColor(id, editingColor.emitterKey, editingColor.slot, index, color);
+                        if (sessionRef.current !== id) return;
+                        setModel(next); setDirty(true);
+                    }} />;
+            })()}
             <div className="paint-footer">
                 <span className="paint-footer__stats">
                     {model.stats.systemCount} systems · {model.stats.emitterCount} emitters
@@ -580,6 +625,7 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
                     <Button
                         type="button"
                         variant="ghost" size="sm"
+                        disabled={recoloring}
                         onClick={handleUndo}
                         title="Undo the last edit"
                     >
@@ -588,6 +634,7 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
                     <Button
                         type="button"
                         variant="ghost" size="sm"
+                        disabled={recoloring}
                         onClick={handleRedo}
                         title="Redo the last undone edit"
                     >
@@ -597,9 +644,9 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
                         type="button"
                         className="paint-footer__recolor" variant="primary"
                         onClick={handleRecolor}
-                        disabled={selectedEmitterKeys.length === 0}
+                        disabled={recoloring || (mode === 'materials' ? !model.materials.some(m => m.colorParams.some(p => selection.has(p.selectionKey))) : selectedEmitterKeys.length === 0)}
                         title={
-                            selectedEmitterKeys.length === 0
+                            mode === 'materials' ? 'Apply palette to selected material parameters' : selectedEmitterKeys.length === 0
                                 ? 'Select emitters first'
                                 : 'Recolor the selection'
                         }
@@ -610,7 +657,7 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
                         type="button"
                         className="paint-footer__save" size="sm"
                         onClick={handleSave}
-                        disabled={!dirty || saving}
+                        disabled={!dirty || saving || recoloring}
                         title={dirty ? 'Save the BIN (checkpoints the project first)' : 'No changes'}
                     >
                         {saving ? 'Saving…' : 'Save'}

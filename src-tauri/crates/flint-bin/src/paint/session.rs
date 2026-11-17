@@ -126,6 +126,7 @@ pub fn recolor_emitters(
             .flat_map(|slots| slots.values())
             .flat_map(|t| t.constant.iter().chain(t.keyframes.iter()))
             .map(|p| p.entry)
+            .chain(emitter_keys.iter().filter_map(|key| s.index.material_params.get(key)).map(|p| p.entry))
             .collect();
         let frame = UndoFrame::capture(&s.tree, touched);
         let n = recolor::recolor_emitters(
@@ -145,6 +146,24 @@ pub fn recolor_emitters(
 }
 
 /// Recolor a single material color param.
+pub fn set_emitter_color(id: SessionId, emitter_key: &str, slot: model::ColorSlot, index: usize, color: [f32; 4]) -> Result<bool> {
+    if color.iter().any(|v| !v.is_finite()) { return Err(BinError("Color values must be finite".into())); }
+    with_session(id, |s| {
+        let path = s.index.emitter_colors.get(emitter_key).and_then(|slots| slots.get(&slot))
+            .and_then(|target| target.constant.iter().chain(target.keyframes.iter()).nth(index)).cloned();
+        let Some(path) = path else { return Err(BinError("Color no longer exists".into())); };
+        let frame = UndoFrame::capture(&s.tree, [path.entry]);
+        let Some(ritoshark::bin::BinValue::Vec4(value)) = path.resolve_mut(&mut s.tree) else {
+            return Err(BinError("Color is not a vec4".into()));
+        };
+        if *value == color { return Ok(false); }
+        *value = color;
+        s.dirty = true;
+        s.push_undo(frame);
+        Ok(true)
+    })?
+}
+
 pub fn set_material_param(
     id: SessionId,
     selection_key: &str,
@@ -441,6 +460,24 @@ mod edit_tests {
 
     fn session_bytes(id: SessionId) -> Vec<u8> {
         with_session(id, |s| write_bin(&s.tree).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn individual_color_edits_preserve_neighbors_and_undo() {
+        let path = write_temp(&bin_with_color(ColorShape::ConstantPlusDynamics([0.2; 4], vec![[0.4; 4], [0.6; 4]])), "single_color");
+        let id = open(&path).unwrap().session_id;
+        let key = only_emitter_key(id);
+        let before = session_bytes(id);
+        assert!(set_emitter_color(id, &key, model::ColorSlot::Color, 1, [2.0, 0.3, 0.7, 0.5]).unwrap());
+        assert_eq!(colors_of(id, &key), vec![[0.2; 4], [2.0, 0.3, 0.7, 0.5], [0.6; 4]]);
+        assert!(set_emitter_color(id, &key, model::ColorSlot::Color, 99, [1.0; 4]).is_err());
+        assert!(set_emitter_color(id, &key, model::ColorSlot::Color, 0, [f32::NAN; 4]).is_err());
+        undo(id).unwrap();
+        assert_eq!(session_bytes(id), before);
+        redo(id).unwrap();
+        assert_eq!(colors_of(id, &key)[1], [2.0, 0.3, 0.7, 0.5]);
+        close(id);
+        std::fs::remove_file(path).unwrap();
     }
 
     fn colors_of(id: SessionId, key: &str) -> Vec<[f32; 4]> {
@@ -788,6 +825,11 @@ mod edit_tests {
 
         undo(id).unwrap().unwrap();
         assert_eq!(session_bytes(id), s0, "material undo was not byte-exact");
+        let mut options = recolor_opts(true);
+        options.mode = RecolorMode::Materials;
+        assert_eq!(recolor_emitters(id, &[sel], &[ColorTargetSel::All], &two_stop_palette(), &options).unwrap(), 1);
+        undo(id).unwrap().unwrap();
+        assert_eq!(session_bytes(id), s0, "material palette undo was not byte-exact");
         close(id);
         let _ = std::fs::remove_file(&path);
     }

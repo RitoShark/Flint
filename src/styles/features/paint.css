@@ -617,3 +617,18 @@ html[data-glass='on'] .paint-footer {
     visibility: hidden;
     pointer-events: none;
 }
+
+.paint-color-editor { display: grid; gap: 20px; }
+.paint-color-editor__stops { display: flex; flex-wrap: wrap; gap: 6px; }
+.paint-color-editor__swatch { width: 18px; height: 18px; border: 1px solid var(--border); border-radius: 4px; }
+.paint-color-editor__channels { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.paint-color-editor label { display: grid; gap: 8px; color: var(--text-secondary); }
+.paint-color-editor input { min-width: 0; width: 100%; }
+
+.paint-palette-controls { padding: 10px 14px; display: grid; gap: 10px; max-height: 280px; overflow: auto; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.paint-palette-controls label { font-size: 11px; color: var(--text-secondary); }
+.paint-palette-controls__gradient { height: 22px; border-radius: 5px; border: 1px solid var(--border); }
+.paint-palette-controls__stops, .paint-palette-controls__saved { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.paint-palette-controls__stop { display: flex; gap: 6px; align-items: center; border: 1px solid var(--border); padding: 6px; border-radius: 6px; }
+.paint-palette-controls__stop input[type=number] { width: 58px; }
+.paint-palette-controls__stop input[type=color] { width: 32px; height: 28px; padding: 0; }

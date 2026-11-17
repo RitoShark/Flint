@@ -74,7 +74,10 @@ export const ColorBlock: React.FC<ColorBlockProps> = React.memo(function ColorBl
             : `${title}: ${colors.length} keyframes`;
 
     return (
-        <span className={className} title={tooltip} onClick={onClick} role={onClick ? 'button' : undefined}>
+        <span className={className} title={tooltip} aria-label={tooltip} onClick={onClick} role={onClick ? 'button' : undefined}
+            tabIndex={onClick && !hidden ? 0 : undefined} onKeyDown={e => {
+                if (onClick && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); e.currentTarget.click(); }
+            }}>
             {hasAlpha && <span className="paint-block__checker" />}
             {/* The only inline style in the panel: the computed gradient itself,
                 which is data and cannot live in a stylesheet. */}

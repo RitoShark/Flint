@@ -286,3 +286,15 @@ mod tests {
         assert_eq!(got, PathBuf::from("/tmp/foo.bin.ritobin"));
     }
 }
+
+#[tauri::command]
+pub async fn paint_set_emitter_color(session_id: u64, emitter_key: String, slot: String, index: usize, color: [f32; 4]) -> Result<VfxModel, String> {
+    use flint_core::bin::paint::model::ColorSlot;
+    let slot = match slot.as_str() {
+        "color" => ColorSlot::Color, "birthColor" => ColorSlot::BirthColor,
+        "fresnelColor" => ColorSlot::FresnelColor, "lingerColor" => ColorSlot::LingerColor,
+        _ => return Err("Unknown color slot".into()),
+    };
+    session::set_emitter_color(session_id, &emitter_key, slot, index, color).map_err(|e| e.to_string())?;
+    session::model_of(session_id).map_err(|e| e.to_string())
+}

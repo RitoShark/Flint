@@ -71,6 +71,7 @@ interface SystemListProps {
     onSetMaterialParam: (selectionKey: string, value: Vec4) => void;
     /** Click a colour block to adopt its hue as the recolor target. */
     onPickHue: (rgba: number[]) => void;
+    onEditColor: (emitterKey: string, slot: keyof VfxEmitter['colors']) => void;
     /** Double-click a row: reveal that name in the ritobin text. */
     onRevealInText: (needle: string) => void;
 }
@@ -121,6 +122,7 @@ export const SystemList: React.FC<SystemListProps> = ({
     onToggleMaterialExpand,
     onSetBlendMode,
     onSetMaterialParam,
+    onEditColor,
     onPickHue,
     onRevealInText,
 }) => {
@@ -421,8 +423,7 @@ export const SystemList: React.FC<SystemListProps> = ({
                             hidden={!showLingerColor}
                             onClick={(e) => {
                                 e.stopPropagation();
-                                const kf = keyframesOf(colors.lingerColor);
-                                if (kf.length) onPickHue(kf[0].rgba);
+                                if (!state.locked) onEditColor(emitter.key, 'lingerColor');
                             }}
                         />
                         <ColorBlock
@@ -432,8 +433,7 @@ export const SystemList: React.FC<SystemListProps> = ({
                             hidden={!showOC}
                             onClick={(e) => {
                                 e.stopPropagation();
-                                const kf = keyframesOf(colors.fresnelColor);
-                                if (kf.length) onPickHue(kf[0].rgba);
+                                if (!state.locked) onEditColor(emitter.key, 'fresnelColor');
                             }}
                         />
                         <ColorBlock
@@ -443,8 +443,7 @@ export const SystemList: React.FC<SystemListProps> = ({
                             hidden={!showBirthColor}
                             onClick={(e) => {
                                 e.stopPropagation();
-                                const kf = keyframesOf(colors.birthColor);
-                                if (kf.length) onPickHue(kf[0].rgba);
+                                if (!state.locked) onEditColor(emitter.key, 'birthColor');
                             }}
                         />
                         <ColorBlock
@@ -454,8 +453,7 @@ export const SystemList: React.FC<SystemListProps> = ({
                             hidden={!showBaseColor}
                             onClick={(e) => {
                                 e.stopPropagation();
-                                const kf = keyframesOf(colors.color);
-                                if (kf.length) onPickHue(kf[0].rgba);
+                                if (!state.locked) onEditColor(emitter.key, 'color');
                             }}
                         />
 
@@ -498,6 +496,7 @@ export const SystemList: React.FC<SystemListProps> = ({
             onToggleMaterialExpand,
             onSetBlendMode,
             onSetMaterialParam,
+            onEditColor,
             onPickHue,
             onRevealInText,
         ],

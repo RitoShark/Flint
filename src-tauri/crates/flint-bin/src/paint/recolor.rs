@@ -122,6 +122,16 @@ pub fn recolor_emitters(
 ) -> usize {
     let mut rng = Rng::new(opts.seed);
     let mut modified = 0;
+    if opts.mode == RecolorMode::Materials {
+        if palette.is_empty() { return 0; }
+        for key in emitter_keys {
+            if let Some(path) = index.material_params.get(key) {
+                let color = palette[rng.below(palette.len())].vec4;
+                if recolor_material_param(bin, path, color, opts.preserve_alpha, opts.ignore_black_white) { modified += 1; }
+            }
+        }
+        return modified;
+    }
 
     for emitter_key in emitter_keys {
         let Some(slot_map) = index.emitter_colors.get(emitter_key) else {
