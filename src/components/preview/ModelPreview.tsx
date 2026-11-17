@@ -39,7 +39,7 @@ import { SubmeshVisibilityTimeline, fnv1a32Lower } from '../../lib/babylon/subme
 import type { AnimationClipInfo, SkinForm, SubmeshVisEvent } from '../../lib/api/mesh';
 import { modelPreviewSessionStore, type ModelPreviewSession } from '../../lib/stores/modelPreviewSessionStore';
 import { shaderForgeAvailable, loadShaderMaterials } from '@shaderforge';
-import { shaderPreviewAvailable } from '../../lib/shaderPreview';
+import { shaderPreviewAvailable, shaderPreviewStatus } from '../../lib/shaderPreview';
 import { readModelIdleEffects, type IdleEffectData } from '../../lib/api/idleEffects';
 import { playIdleEffects } from '../../lib/vfx/native/player';
 
@@ -204,14 +204,15 @@ const MpToggleRow: React.FC<{
     desc?: React.ReactNode;
     checked: boolean;
     onChange: (v: boolean) => void;
-}> = ({ label, desc, checked, onChange }) => (
-    <div className="mp-field mp-field--row" onClick={() => onChange(!checked)}>
+    disabled?: boolean;
+}> = ({ label, desc, checked, onChange, disabled }) => (
+    <div className="mp-field mp-field--row" aria-disabled={disabled} onClick={() => { if (!disabled) onChange(!checked); }}>
         <div className="mp-field__text">
             <span className="mp-field__label">{label}</span>
             {desc && <span className="mp-field__desc">{desc}</span>}
         </div>
         <label className="dl-toggle" onClick={(e) => e.stopPropagation()}>
-            <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+            <input type="checkbox" checked={checked} disabled={disabled} onChange={(e) => onChange(e.target.checked)} />
             <span className="dl-toggle__track" />
             <span className="dl-toggle__thumb" />
         </label>
@@ -343,9 +344,10 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
     });
     const [shaderReady, setShaderReady] = useState(false);
     const [shaderStatus, setShaderStatus] = useState('');
+    const [shaderConnection, setShaderConnection] = useState('Checking ShaderForge connection...');
     useEffect(() => {
         let active = true;
-        void shaderPreviewAvailable().then(ready => { if (active) setShaderReady(ready); });
+        void shaderPreviewStatus().then(status => { if (active) { setShaderReady(status.available); setShaderConnection(status.reason); } });
         return () => { active = false; };
     }, []);
     const gameShadersRef = useRef(gameShaders);
@@ -1681,11 +1683,12 @@ export const ModelPreview: React.FC<ModelPreviewProps> = ({ filePath, meshType =
             {activePopup === 'display' && (
                 <MpPopup title="Display & Skeleton" side="right" onClose={() => setActivePopup(null)}>
                     <MpToggleRow label="Wireframe" checked={wireframe} onChange={setWireframe} />
-                    {shaderReady && meshType === 'skinned' && (
+                    {meshType === 'skinned' && (
                         <MpToggleRow
                             label="Game shaders"
-                            desc={gameShaders && shaderStatus ? shaderStatus : 'Render static materials with game shaders'}
-                            checked={gameShaders}
+                            desc={shaderReady && gameShaders && shaderStatus ? shaderStatus : shaderConnection}
+                            checked={shaderReady && gameShaders}
+                            disabled={!shaderReady}
                             onChange={setGameShaders}
                         />
                     )}

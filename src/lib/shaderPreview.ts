@@ -1,10 +1,23 @@
 import { shaderForgeAvailable } from '@shaderforge';
 import { invokeCommand } from './api/core';
 
-let availability: Promise<boolean> | undefined;
+export interface ShaderPreviewStatus {
+    available: boolean;
+    reason: string;
+}
 
-export function shaderPreviewAvailable(): Promise<boolean> {
-    if (!shaderForgeAvailable) return Promise.resolve(false);
+let availability: Promise<ShaderPreviewStatus> | undefined;
+
+export function shaderPreviewStatus(): Promise<ShaderPreviewStatus> {
+    if (!shaderForgeAvailable) return Promise.resolve({ available: false, reason: 'ShaderForge frontend is not included in this build.' });
     return availability ??= invokeCommand<boolean>('shader_preview_available', {}, { silent: true })
-        .catch(() => { availability = undefined; return false; });
+        .then(available => ({ available, reason: available ? 'ShaderForge connected. Loads materials for this SKN.' : 'This build has no ShaderForge backend. Start the shader-enabled build to use game shaders.' }))
+        .catch(error => {
+            availability = undefined;
+            return { available: false, reason: `ShaderForge connection failed: ${String(error)}` };
+        });
+}
+
+export async function shaderPreviewAvailable(): Promise<boolean> {
+    return (await shaderPreviewStatus()).available;
 }

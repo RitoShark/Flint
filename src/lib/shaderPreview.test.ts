@@ -27,3 +27,16 @@ it('skips backend discovery when the frontend module is absent', async () => {
     expect(await shaderPreviewAvailable()).toBe(false);
     expect(mocks.invoke).not.toHaveBeenCalled();
 });
+
+it('explains why a stub build cannot load game shaders', async () => {
+    mocks.invoke.mockResolvedValue(false);
+    const { shaderPreviewStatus } = await import('./shaderPreview');
+    expect(await shaderPreviewStatus()).toMatchObject({ available: false, reason: expect.stringContaining('no ShaderForge backend') });
+});
+
+it('reports connection failures and allows a later retry', async () => {
+    mocks.invoke.mockRejectedValueOnce(new Error('IPC unavailable')).mockResolvedValueOnce(true);
+    const { shaderPreviewStatus } = await import('./shaderPreview');
+    expect(await shaderPreviewStatus()).toMatchObject({ available: false, reason: expect.stringContaining('IPC unavailable') });
+    expect((await shaderPreviewStatus()).available).toBe(true);
+});
