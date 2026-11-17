@@ -63,7 +63,7 @@ fn write_project_files_txt(assets_root: &Path) -> Result<usize, String> {
     let mut per_wad: BTreeMap<PathBuf, BTreeMap<String, String>> = BTreeMap::new();
 
     for wad_dir in flint_core::export::project_wad_folders(
-        assets_root.parent().unwrap_or(assets_root),
+        assets_root.parent().and_then(Path::parent).unwrap_or(assets_root),
     )
     .unwrap_or_default()
     {
@@ -496,6 +496,22 @@ pub async fn create_project(
             }
         }
     }
+
+    let recovered_project = project.project_path.clone();
+    let recovered_prefix = project.repath_prefix.as_ref()
+        .map(|prefix| format!("assets/{prefix}"))
+        .unwrap_or_else(|| format!("assets/characters/{}/skins/skin{skin_id}", champion.to_ascii_lowercase()));
+    tokio::task::spawn_blocking(move || -> Result<(), String> {
+        for wad in flint_core::export::project_wad_folders(&recovered_project)
+            .map_err(|e| e.to_string())? {
+            let recovered = flint_core::repath::hashed_assets::organize(&wad, &recovered_prefix)?;
+            if !recovered.files.is_empty() {
+                crate::commands::bin::bin::merge_into_files_txt(&wad.join("recovered.bin"), &recovered);
+                tracing::info!("Placed {} referenced hashed assets in {}", recovered.files.len(), wad.display());
+            }
+        }
+        Ok(())
+    }).await.map_err(|e| e.to_string())??;
 
     // flint.json is written before the repath runs, so the prefix and the
     // finished timestamps only land on this second save.

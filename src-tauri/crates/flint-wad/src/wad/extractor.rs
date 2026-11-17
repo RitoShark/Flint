@@ -410,6 +410,34 @@ pub fn extract_skin_assets(
         extraction_plan.push((*chunk, out_path));
     }
 
+    let by_hash: HashMap<u64, WadChunk> = chunks.iter().map(|c| (c.path_hash, *c)).collect();
+    let mut selected: HashSet<u64> = extraction_plan.iter().map(|(c, _)| c.path_hash).collect();
+    let mut queue: VecDeque<WadChunk> = extraction_plan.iter()
+        .filter(|(_, path)| path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("bin")))
+        .map(|(chunk, _)| *chunk).collect();
+    while let Some(chunk) = queue.pop_front() {
+        let Ok(bytes) = wad.chunk_data(&chunk) else { continue };
+        let Ok(bin) = flint_bin::read_bin(&bytes) else { continue };
+        let mut hashes = Vec::new();
+        let mut paths = Vec::new();
+        for entry in &bin.entries {
+            for value in entry.fields.values() { collect_paths_and_hashes_from_value_into(value, &mut paths, &mut hashes); }
+        }
+        for hash in hashes {
+            if selected.contains(&hash) { continue; }
+            if resolved_map.get(&hash).is_some_and(|path| !audio.includes_path(path)) { continue; }
+            let Some(chunk) = by_hash.get(&hash) else { continue };
+            let Ok(bytes) = wad.chunk_data(chunk) else { continue };
+            let kind = detect(&bytes);
+            if matches!(kind, FileKind::Bnk | FileKind::Wpk) && !audio.sfx && !audio.vo { continue; }
+            selected.insert(hash);
+            let out = wad_output_dir.join(resolve_chunk_path(&format!("{hash:016x}"), &bytes));
+            if let Some(parent) = out.parent() { parents.insert(parent.to_path_buf()); }
+            extraction_plan.push((*chunk, out));
+            if matches!(kind, FileKind::PropBin | FileKind::PatchBin) { queue.push_back(*chunk); }
+        }
+    }
+
     if skipped_unknown > 0 {
         tracing::warn!("Skipped {} unresolved hashes (not in hash DB)", skipped_unknown);
     }
@@ -522,7 +550,8 @@ fn resolve_chunk_path(path: &str, chunk_data: &[u8]) -> PathBuf {
 
         match extension {
             Some(extension) => {
-                chunk_path = chunk_path.with_file_name(format!("{}.ltk.{}", filename, extension));
+                let marker = if filename.len() == 16 && filename.chars().all(|c| c.is_ascii_hexdigit()) { "" } else { ".ltk" };
+                chunk_path = chunk_path.with_file_name(format!("{filename}{marker}.{extension}"));
             }
             None => {
                 chunk_path = chunk_path.with_file_name(format!("{}.ltk", filename));
@@ -667,6 +696,7 @@ pub fn extract_skin_assets_selective(
     // ── Phase A: BFS the BIN graph, collect referenced asset paths ─────────
     let t_walk = Instant::now();
     let mut want_paths: HashSet<String> = HashSet::new();
+    let mut raw_hashes: HashSet<u64> = HashSet::new();
     let mut bin_seen: HashSet<String> = HashSet::new();
     let mut queue: VecDeque<String> = VecDeque::new();
 
@@ -721,7 +751,7 @@ pub fn extract_skin_assets_selective(
         if !audio.includes_path(&bin_path) {
             continue;
         }
-        let h = xx(&bin_path);
+        let h = if bin_path.len() == 16 { u64::from_str_radix(&bin_path, 16).unwrap_or_else(|_| xx(&bin_path)) } else { xx(&bin_path) };
         let chunk = match by_hash.get(&h) {
             Some(c) => *c,
             // Linked BIN listed in deps but not in this WAD (shared assets
@@ -736,7 +766,11 @@ pub fn extract_skin_assets_selective(
                 continue;
             }
         };
-        want_paths.insert(bin_path.clone());
+        if bin_path.len() == 16 && bin_path.chars().all(|c| c.is_ascii_hexdigit()) {
+            raw_hashes.insert(h);
+        } else {
+            want_paths.insert(bin_path.clone());
+        }
 
         let bin = match flint_bin::codec::read_bin(&bytes) {
             Ok(b) => b,
@@ -790,6 +824,19 @@ pub fn extract_skin_assets_selective(
                 } else {
                     want_paths.insert(p_norm);
                 }
+            } else if let Some(chunk) = by_hash.get(&h) {
+                if raw_hashes.insert(h) {
+                    if let Ok(bytes) = wad.chunk_data(chunk) {
+                        let kind = detect(&bytes);
+                        if matches!(kind, FileKind::PropBin | FileKind::PatchBin) {
+                            let name = format!("{h:016x}");
+                            if bin_seen.insert(name.clone()) { queue.push_back(name); }
+                        } else if matches!(kind, FileKind::Bnk | FileKind::Wpk)
+                            && !audio.sfx && !audio.vo {
+                            raw_hashes.remove(&h);
+                        }
+                    }
+                }
             }
         }
     }
@@ -804,7 +851,7 @@ pub fn extract_skin_assets_selective(
     );
 
     // ── Phase B: hash → filter set, delegate to extract_chunks_parallel ────
-    let mut want_hashes: HashSet<u64> = HashSet::with_capacity(want_paths.len());
+    let mut want_hashes = raw_hashes;
     let mut known_paths: HashMap<u64, String> = HashMap::with_capacity(want_paths.len());
     for p in want_paths {
         let h = xx(&p);
@@ -999,6 +1046,49 @@ mod tests {
     use super::*;
 
     #[test]
+    fn unnamed_file_references_are_extracted_and_unnamed_bins_are_walked() {
+        use ritoshark::bin::{Bin, BinEntry};
+        use ritoshark::wad::WadBuilder;
+        let dir = tempfile::tempdir().unwrap();
+        let seed = "data/characters/hashfixture/skins/skin0.bin";
+        let hidden_bin = "data/hidden-ref-fixture.bin";
+        let hidden_tex = "assets/hidden-ref-fixture.tex";
+        let make = |hash| {
+            let mut bin = Bin::new();
+            bin.entries.push(BinEntry { path_hash: 1, class_hash: 2,
+                fields: [(3, BinValue::File(hash))].into_iter().collect() });
+            flint_bin::write_bin(&bin).unwrap()
+        };
+        let hash = ritoshark::hash::xxh64;
+        let files = [(seed, make(hash(hidden_bin))), (hidden_bin, make(hash(hidden_tex))), (hidden_tex, b"TEX\0".to_vec())];
+        let mut builder = WadBuilder::new();
+        for (path, _) in &files { builder.add_chunk(path); }
+        let bytes = builder.build_to_bytes(|h, out| {
+            out.write_all(&files.iter().find(|(path, _)| hash(path) == h).unwrap().1).unwrap();
+            Ok(())
+        }).unwrap();
+        let wad = dir.path().join("input.wad.client");
+        fs::write(&wad, bytes).unwrap();
+        let resolve = |_: &[u64]| {
+            let mut paths = ResolvedHashes::new();
+            paths.insert(hash(seed), seed);
+            paths
+        };
+        for selective in [false, true] {
+            let output = dir.path().join(format!("mode-{selective}"));
+            if selective {
+                extract_skin_assets_selective(&wad, &output, "hashfixture", 0, &resolve, false, AudioExtraction::ALL).unwrap();
+            } else {
+                extract_skin_assets(&wad, &output, "hashfixture", 0, &resolve, false, AudioExtraction::ALL).unwrap();
+            }
+            let root = output.join("hashfixture.wad.client");
+            assert!(root.join(seed).exists());
+            assert!(root.join(format!("{:016x}.bin", hash(hidden_bin))).exists());
+            assert_eq!(fs::read(root.join(format!("{:016x}.tex", hash(hidden_tex)))).unwrap(), b"TEX\0");
+        }
+    }
+
+    #[test]
     fn audio_choices_are_independent_and_case_insensitive() {
         let sfx = "ASSETS\\Sounds\\Wwise2016\\SFX\\test.bnk";
         let vo = "assets/sounds/wwise2016/vo/en_us/test.wpk";
@@ -1163,7 +1253,7 @@ mod tests {
         let path = "1a2b3c4d5e6f7a8b";
         let data = [0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
         let resolved = resolve_chunk_path(path, &data);
-        assert!(resolved.to_string_lossy().ends_with(".ltk.png"));
+        assert_eq!(resolved, PathBuf::from("1a2b3c4d5e6f7a8b.png"));
     }
 
     #[test]
