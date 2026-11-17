@@ -11,3 +11,7 @@ pub mod vfx_shape;
 pub mod toon;
 
 pub use bin::*;
+
+pub mod voice;
+
+mod persist;

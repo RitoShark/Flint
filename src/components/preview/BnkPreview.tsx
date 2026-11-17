@@ -5,6 +5,7 @@ import * as api from '../../lib/api';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import { useAppMetadataStore, useProjectTabStore } from '../../lib/stores';
 import type { AudioBankInfo, AudioEntryInfo, EventMapping } from '../../lib/types';
+import { VoiceLineEditor } from './VoiceLineEditor';
 import { AudioCutterModal } from './AudioCutterModal';
 import { applyGainToWem, decodeAudioFile } from './audioUtils';
 import { isWwiseWem } from '../../lib/audioDsp';
@@ -21,6 +22,7 @@ import { CtxItem, CtxDivider } from './bnk/CtxMenu';
 import { panelStyles } from './bnk/styles';
 
 export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
+    const [voiceOpen, setVoiceOpen] = useState(false);
     const [info, setInfo] = useState<AudioBankInfo | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -707,7 +709,7 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
     };
 
     return (
-        <div style={panelStyles.root}>
+        <div className="sound-bank" style={panelStyles.root}>
             <div style={panelStyles.header}>
                 <div style={panelStyles.summary}>
                     <span style={panelStyles.badge}>{info.format.toUpperCase()}</span>
@@ -736,7 +738,7 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                             size="sm" active={viewMode === 'flat'}
                             onClick={() => setViewMode('flat')}
                         >
-                            Flat
+                            Media
                         </Button>
                         <Button
                             size="sm" active={viewMode === 'events'}
@@ -750,7 +752,7 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
 
                     <input
                         type="text"
-                        placeholder="Filter..."
+                        placeholder="Search media or events..."
                         value={filter}
                         onChange={(e) => setFilter(e.target.value)}
                         style={panelStyles.filterInput}
@@ -876,6 +878,27 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                 </div>
             )}
 
+            <div className="sound-bank__workspace">
+            <aside className="sound-bank__inspector">
+                <span className="sound-bank__eyebrow">SOUND BANK</span>
+                <h3>{filePath.split(/[\\/]/).pop()}</h3>
+                <p>{info.entries.length} media files / {events.length} events</p>
+                <Button size="sm" disabled={binLink.kind !== 'linked'} onClick={() => setVoiceOpen(true)}>Edit voice rules</Button>
+                <hr />
+                <h4>{selectedId === null ? 'Select a sound' : `WEM ${selectedId}`}</h4>
+                {selectedId !== null && (() => {
+                    const entry = info.entries.find(e => e.id === selectedId);
+                    if (!entry) return null;
+                    return <>
+                        <p>{formatBytes(entry.size)}</p>
+                        <Button size="sm" onClick={() => void handlePlayToggle(entry.id)}>{playingId === entry.id ? 'Pause' : 'Play'}</Button>
+                        <Button size="sm" disabled={busyId !== null} onClick={() => void handleReplace(entry)}>Replace audio...</Button>
+                        <Button size="sm" disabled={busyId !== null} onClick={() => setCutterModal({ entry })}>Trim audio...</Button>
+                        <Button size="sm" onClick={() => void handleExtract(entry, 'decoded')}>Export audio</Button>
+                        <div className="sound-bank__event-names">{events.filter(e => e.wemIds.includes(entry.id)).map(e => <p key={e.name}>{e.name}</p>)}</div>
+                    </>;
+                })()}
+            </aside>
             <div style={panelStyles.listWrap}>
                 <table style={panelStyles.table}>
                     <thead>
@@ -920,6 +943,8 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                 </table>
             </div>
 
+            </div>
+            {voiceOpen && binLink.kind === 'linked' && <VoiceLineEditor path={binLink.path} onClose={() => setVoiceOpen(false)} onSaved={() => { useAppMetadataStore.getState().incrementFileVersion(binLink.path); setVoiceOpen(false); }} />}
             <audio
                 ref={audioRef}
                 onEnded={() => setPlayingId(null)}

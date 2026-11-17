@@ -18,6 +18,7 @@ import {
 } from '../../lib/editor/ritobinLanguage';
 import { AssetPreviewTooltip } from './AssetPreviewTooltip';
 import { MaskEditor } from './MaskEditor';
+import { VoiceLineEditor } from './VoiceLineEditor';
 import { PaintPanel } from './paint/PaintPanel';
 import { BinToolsPanel } from './bintools/BinToolsPanel';
 import { applyContentToEditor } from '../../lib/editor/applyContent';
@@ -269,6 +270,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     const [hasMaskMap, setHasMaskMap] = useState(false);
     const [maskEditorOpen, setMaskEditorOpen] = useState(false);
     const [hasVfx, setHasVfx] = useState(false);
+    const [voiceOpen, setVoiceOpen] = useState(false);
     const [paintOpen, setPaintOpen] = useState(false);
     /* Submesh picker for `Submesh: string = "..."` lines. `line` is the line the
        CodeLens was clicked on; `names` empty with a `note` means the SKN could
@@ -532,6 +534,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
     useEffect(() => {
         let cancelled = false;
         setHasVfx(false);
+        setVoiceOpen(false);
         setPaintOpen(false);
         api.binHasVfxSystems(filePath)
             .then((has) => { if (!cancelled) setHasVfx(has); })
@@ -1431,6 +1434,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                             <Icon name="contrast" />
                         </Button>
                     )}
+                    <Button size="sm" disabled={isDirty} title={isDirty ? 'Save the BIN before editing voice rules' : 'Edit contextual voice rules'} onClick={() => setVoiceOpen(true)}>Voice rules</Button>
                     {hasVfx && (
                         <Button
                             iconOnly variant={paintOpen ? "primary" : undefined}
@@ -1579,6 +1583,7 @@ export const BinEditor: React.FC<BinEditorProps> = ({ filePath, hideFilename }) 
                 )}
             </div>
 
+            {voiceOpen && <VoiceLineEditor path={filePath} onClose={() => setVoiceOpen(false)} onSaved={() => incrementFileVersion(filePath)} />}
             {submeshPicker && (
                 <SubmeshPicker
                     request={submeshPicker}

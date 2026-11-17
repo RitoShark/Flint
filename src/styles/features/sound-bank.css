@@ -1,0 +1,15 @@
+.sound-bank__workspace { flex: 1; min-height: 0; display: flex; }
+.sound-bank__inspector { flex: 0 0 220px; padding: 20px; overflow: auto; border-right: 1px solid var(--border); background: var(--bg-secondary); display: flex; flex-direction: column; gap: 10px; }
+.sound-bank__eyebrow { font-size: 10px; letter-spacing: .12em; color: var(--text-muted); }
+.sound-bank__inspector h3 { font-size: 15px; margin: 0; overflow-wrap: anywhere; }
+.sound-bank__inspector h4 { margin: 8px 0; }
+.sound-bank__inspector p { font-size: 12px; color: var(--text-secondary); margin: 0; }
+.sound-bank__inspector hr { width: 100%; border: 0; border-top: 1px solid var(--border); }
+.sound-bank__event-names { display: grid; gap: 8px; overflow-wrap: anywhere; }
+.voice-editor { display: grid; gap: 14px; }
+.voice-editor__field { display: grid; grid-template-columns: minmax(0, 1fr) minmax(150px, 1fr); gap: 20px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; align-items: center; }
+.voice-editor__field span { display: grid; gap: 6px; min-width: 0; }
+.voice-editor__field small { color: var(--text-muted); overflow-wrap: anywhere; }
+.voice-editor__field input { min-width: 0; }
+.sound-bank { container-type: inline-size; }
+@container (max-width: 620px) { .sound-bank__inspector { flex-basis: 160px; padding: 12px; } }

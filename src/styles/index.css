@@ -82,3 +82,5 @@
 @import './features/send-to-ruby.css';
 @import '../themes/default.css';
 @import './foundation/motion.css';
+
+@import './features/sound-bank.css';
