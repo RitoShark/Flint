@@ -1,4 +1,4 @@
-use crate::bin::{read_bin, write_bin, Bin, BinEntry, BinValue, Trailer};
+use crate::bin::{read_bin, write_bin, BinEntry, BinValue, Trailer};
 use ritoshark::hash::{fnv1a, xxh64};
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -322,7 +322,7 @@ fn rewrite(value: &mut BinValue, replacements: &BTreeMap<u64, u64>) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bin::BinType;
+    use crate::bin::{Bin, BinType};
 
     fn fixture(root: &Path) -> u64 {
         let shared = 0xc49cec28a66ae5bb;
