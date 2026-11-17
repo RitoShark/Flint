@@ -184,3 +184,10 @@ input.search-box__input {
 }
 
 .file-tree:focus, .file-tree:focus-visible { outline: none; }
+
+.ghost-tree { flex: 0 1 auto; max-height: 45%; overflow: auto; border-top: 1px solid var(--border); padding: 8px; }
+.ghost-tree p, .ghost-tree label { font-size: 11px; color: var(--text-muted); }
+.ghost-tree summary { padding: 5px 0; cursor: pointer; font-size: 12px; color: var(--text-muted); overflow-wrap: anywhere; }
+.ghost-tree__branch { padding-left: 12px; }
+.ghost-tree__file { display: flex; width: 100%; justify-content: flex-start; color: var(--text-muted); font-style: italic; text-align: left; overflow: hidden; }
+.ghost-tree__preview { height: 55vh; min-height: 250px; position: relative; display: flex; }

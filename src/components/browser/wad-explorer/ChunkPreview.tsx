@@ -30,7 +30,7 @@ const BitmapCanvas: React.FC<{ bitmap: ImageBitmap; style: React.CSSProperties }
 export const ChunkPreview: React.FC<{
     wadPath: string;
     chunk: WadChunk;
-    onClose: () => void;
+    onClose?: () => void;
     /** When set, inner bytes are read through this source (e.g. a CDN session). */
     dataSource?: WadDataSource;
     revealLine?: number;
@@ -168,11 +168,11 @@ export const ChunkPreview: React.FC<{
         : chunk.hash;
 
     return (
-        <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', minWidth: 0 }}>
             <div className="preview-panel__toolbar" style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-                <Button size="sm" onClick={onClose} title="Close preview" >
+                {onClose && <Button size="sm" onClick={onClose} title="Close preview" >
                     <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M4.5 4.5l7 7m0-7l-7 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
-                </Button>
+                </Button>}
                 {(data?.imageUrl || data?.bitmap) && (
                     <>
                         {(['fit', 1, 2] as const).map(z => (

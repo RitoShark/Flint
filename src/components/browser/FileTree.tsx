@@ -37,6 +37,8 @@ import {
     type TreeTag,
 } from '../../lib/editor/treeDecorations';
 
+const ProjectGhostFiles = lazyWarm(() => import('./ProjectGhostFiles').then(m => ({ default: m.ProjectGhostFiles })));
+
 const WorkspaceSearch = lazyWarm(() => import('./WorkspaceSearch').then(module => ({ default: module.WorkspaceSearch })));
 
 const ROW_HEIGHT = 22;
@@ -118,6 +120,7 @@ export const LeftPanel: React.FC<LeftPanelProps> = ({ style }) => {
                 />
             </div>
             <FileTree searchQuery={searchQuery} />
+            <React.Suspense fallback={null}><ProjectGhostFiles key={activeTab.id} tab={activeTab} /></React.Suspense>
                 </>
             )}
         </aside>

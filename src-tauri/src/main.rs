@@ -422,6 +422,8 @@ fn main() {
             commands::paint::paint_recolor,
             commands::paint::paint_set_material_param,
             commands::paint::paint_set_blend_mode,
+            commands::project::ghost::project_ghost_inventory,
+            commands::project::ghost::bring_ghost_to_layer,
             commands::paint::paint_undo,
             commands::paint::paint_redo,
             commands::paint::paint_is_dirty,
