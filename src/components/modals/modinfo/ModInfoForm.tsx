@@ -133,9 +133,9 @@ export const ModInfoForm: React.FC<Props> = ({ section, focusSection, draft, slu
         : '';
 
     return (
-        <div className="mi-grid">
+        <div className={`mi-grid${section ? ' mi-grid--section' : ''}`}>
             <div className="mi-col">
-                <section className={`mi-card${activeFocus === 'details' ? ' mi-card--focus' : ''}`}>
+                <section hidden={!!section && section !== 'details'} className={`mi-card${activeFocus === 'details' ? ' mi-card--focus' : ''}`}>
                     <div className="mi-card__head">
                         <span className="mi-card__title">
                             <Icon name="document" />
@@ -198,7 +198,7 @@ export const ModInfoForm: React.FC<Props> = ({ section, focusSection, draft, slu
                     </div>
                 </section>
 
-                <section className={`mi-card${activeFocus === 'people' || activeFocus === 'targets' ? ' mi-card--focus' : ''}`}>
+                <section hidden={!!section && section !== 'people' && section !== 'targets'} className={`mi-card${activeFocus === 'people' || activeFocus === 'targets' ? ' mi-card--focus' : ''}`}>
                     <div className="mi-card__head">
                         <span className="mi-card__title">
                             <Icon name="user" />
@@ -302,7 +302,7 @@ export const ModInfoForm: React.FC<Props> = ({ section, focusSection, draft, slu
             </div>
 
             <div className="mi-col">
-                <section className={`mi-card${activeFocus === 'license' ? ' mi-card--focus' : ''}`}>
+                <section hidden={!!section && section !== 'license'} className={`mi-card${activeFocus === 'license' ? ' mi-card--focus' : ''}`}>
                     <div className="mi-card__head">
                         <span className="mi-card__title">
                             <Icon name="lock" />

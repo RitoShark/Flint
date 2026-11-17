@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Button } from '../ui/Button';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
-import { ModInfoForm } from '../modals/modinfo/ModInfoForm';
+import { ModInfoForm, type ModInfoSection } from '../modals/modinfo/ModInfoForm';
 import { useModInfo } from '../modals/modinfo/useModInfo';
 
 const Icon: React.FC<{ name: Parameters<typeof getIcon>[0]; className?: string }> = ({ name, className }) => (
@@ -14,6 +14,7 @@ interface ModConfigEditorProps {
 
 export const ModConfigEditor: React.FC<ModConfigEditorProps> = ({ filePath }) => {
     const [showRawJson, setShowRawJson] = useState(false);
+    const [section, setSection] = useState<ModInfoSection>('details');
     const { draft, rawJson, slug, dirty, saving, update, save } = useModInfo(filePath, true, () => {});
 
     useEffect(() => {
@@ -41,7 +42,7 @@ export const ModConfigEditor: React.FC<ModConfigEditorProps> = ({ filePath }) =>
                         <span className="mi-inline__badge">mod.config.json</span>
                     </h3>
                     <span className="mi-inline__sub">
-                        Configure project metadata, contributors, targets, and Creative Commons / SPDX license
+                        Your mod, ready to share.
                     </span>
                 </div>
                 <div className="mi-inline__actions">
@@ -59,11 +60,20 @@ export const ModConfigEditor: React.FC<ModConfigEditorProps> = ({ filePath }) =>
                         onClick={() => void save()}
                         disabled={!dirty || saving}
                     >
-                        {saving ? 'Saving…' : 'Save Config'}
+                        {saving ? 'Saving…' : 'Save changes'}
                     </Button>
                 </div>
             </div>
 
+            <nav className="mi-inline__tabs" aria-label="Mod information">
+                {([
+                    ['details', 'Overview'], ['people', 'People & targets'], ['license', 'License & credits'],
+                ] as const).map(([id, label]) => (
+                    <Button key={id} variant={!showRawJson && section === id ? 'primary' : 'ghost'} size="sm"
+                        aria-pressed={!showRawJson && section === id}
+                        onClick={() => { setSection(id); setShowRawJson(false); }}>{label}</Button>
+                ))}
+            </nav>
             <div className="mi-inline__workspace">
                 <div className="mi-body">
                     {!draft ? (
@@ -78,7 +88,20 @@ export const ModConfigEditor: React.FC<ModConfigEditorProps> = ({ filePath }) =>
                             </div>
                         </div>
                     ) : (
-                        <ModInfoForm draft={draft} slug={slug} onChange={update} />
+                        <div className="mi-inline__content">
+                            <aside className="mi-summary">
+                                <span className="mi-summary__eyebrow">MOD INFORMATION</span>
+                                <h2>{draft.displayName || slug || 'Untitled mod'}</h2>
+                                <span className="mi-inline__badge">{draft.version || 'No version'}</span>
+                                <p>{draft.description || 'Add a description so players know what your mod changes.'}</p>
+                                <dl>
+                                    <dt>By</dt><dd>{draft.authors.map(a => a.name).filter(Boolean).join(', ') || 'Add a contributor'}</dd>
+                                    <dt>Champions</dt><dd>{draft.champions.join(', ') || 'Not specified'}</dd>
+                                    <dt>License</dt><dd>{draft.licenseKind === 'spdx' ? draft.licenseSpdx : draft.licenseName || 'Not specified'}</dd>
+                                </dl>
+                            </aside>
+                            <ModInfoForm section={section} draft={draft} slug={slug} onChange={update} />
+                        </div>
                     )}
                 </div>
             </div>
