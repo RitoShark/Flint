@@ -82,6 +82,8 @@ export interface SavedProject {
 }
 
 export interface FileTreeNode {
+    ghostSource?: string;
+    ghostLayer?: string;
     name: string;
     path: string;
     isDirectory: boolean;

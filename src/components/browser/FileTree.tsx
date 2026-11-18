@@ -1,3 +1,5 @@
+import { withLayerGhosts, type LayerGhost } from '../../lib/editor/layerGhosts';
+import { invokeCommand } from '../../lib/api/core';
 import { Button } from '../ui/Button';
 import React, { useState, useMemo, useCallback, useRef, useEffect, CSSProperties } from 'react';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
@@ -36,6 +38,8 @@ import {
     type TreeDecorations,
     type TreeTag,
 } from '../../lib/editor/treeDecorations';
+
+const InheritedFilePreview = lazyWarm(() => import('./InheritedFilePreview').then(m => ({ default: m.InheritedFilePreview })));
 
 const ProjectGhostFiles = lazyWarm(() => import('./ProjectGhostFiles').then(m => ({ default: m.ProjectGhostFiles })));
 
@@ -244,7 +248,17 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
     const leaguePath = useConfigStore((s) => s.leaguePath);
 
     const activeTab = getActiveTab(activeTabId, openTabs);
-    const fileTree = activeTab?.fileTree || null;
+    const physicalTree = activeTab?.fileTree || null;
+    const [layerGhosts, setLayerGhosts] = useState<LayerGhost[]>([]);
+    const [ghostPreview, setGhostPreview] = useState<FileTreeNode | null>(null);
+    useEffect(() => {
+        let active = true;
+        setLayerGhosts([]); setGhostPreview(null);
+        if (activeTab?.projectPath) void invokeCommand<LayerGhost[]>('list_layer_ghosts', { projectPath: activeTab.projectPath })
+            .then(ghosts => { if (active) setLayerGhosts(ghosts); }).catch(e => { if (active) showToast('error', `Could not load inherited files: ${String(e)}`); });
+        return () => { active = false; };
+    }, [activeTab?.projectPath, physicalTree, showToast]);
+    const fileTree = useMemo(() => withLayerGhosts(physicalTree, layerGhosts), [physicalTree, layerGhosts]);
     const selectedFile = activeTab?.selectedFile || null;
     const expandedFolders = activeTab?.expandedFolders || new Set<string>();
 
@@ -407,7 +421,7 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
     // The 'file-tree' scope is pushed only while the tree actually holds focus,
     // which is what makes bare ArrowDown/Delete safe: with a view-wide scope they
     // would also fire over the 3D preview and the editors.
-    useScope('file-tree', treeFocused);
+    useScope('file-tree', treeFocused && !ghostPreview);
 
     /** Flattened rows in the shape treeNav works on. */
     const navRows = useMemo<NavRow[]>(() => rows.map((r) => ({
@@ -436,7 +450,7 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         setFocusedPathState(path);
         setSelectedPaths(new Set([path]));
         anchorRef.current = path;
-        setSelectedFile(activeTabRef.current.id, path);
+        if (!rowsRef.current.find(r => r.node.path === path)?.node.ghostSource) setSelectedFile(activeTabRef.current.id, path);
         scrollPathIntoView(path);
     }, [setSelectedFile, scrollPathIntoView]);
 
@@ -446,13 +460,13 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         const anchor = anchorRef.current ?? focusedPathRef.current;
         setFocusedPathState(path);
         if (anchor) setSelectedPaths(new Set(rangeBetween(navRowsRef.current, anchor, path)));
-        setSelectedFile(activeTabRef.current.id, path);
+        if (!rowsRef.current.find(r => r.node.path === path)?.node.ghostSource) setSelectedFile(activeTabRef.current.id, path);
         scrollPathIntoView(path);
     }, [setSelectedFile, scrollPathIntoView]);
 
     const beginRename = useCallback(() => {
         const sel = focusedPathRef.current;
-        if (renamingPath || !sel || sel === '.') return;
+        if (renamingPath || !sel || sel === '.' || rowsRef.current.find(r => r.node.path === sel)?.node.ghostSource) return;
         setRenamingPath(sel);
     }, [renamingPath]);
 
@@ -462,7 +476,7 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         if (renamingPath || !tab || !sel) return;
 
         const selPaths = selectedPathsRef.current;
-        const targets = (selPaths.size > 0 ? [...selPaths] : [sel]).filter((p) => p && p !== '.');
+        const targets = (selPaths.size > 0 ? [...selPaths] : [sel]).filter((p) => p && p !== '.' && !rowsRef.current.find(r => r.node.path === p)?.node.ghostSource);
         if (!targets.length) return;
 
         const label = targets.length === 1
@@ -562,6 +576,12 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
     }, []);
 
     const handleItemClick = useCallback((path: string, mods?: { ctrl: boolean; shift: boolean }) => {
+        const ghost = rowsRef.current.find(r => r.node.path === path)?.node;
+        if (ghost?.ghostSource) {
+            if (!ghost.isDirectory) setGhostPreview(ghost);
+            else if (activeTab) toggleFolder(activeTab.id, path);
+            return;
+        }
         if (!activeTab) return;
         if (mods?.shift && anchorRef.current) {
             const paths = rowsRef.current.map((r) => r.node.path);
@@ -587,15 +607,15 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
         // followed by ArrowDown continues from there rather than from a stale row.
         setFocusedPathState(path);
         useNavigationStore.getState().setView('preview');
-    }, [activeTab, setSelectedFile]);
+    }, [activeTab, setSelectedFile, toggleFolder]);
 
     const handleRowPointerDown = useCallback((node: FileTreeNode, e: React.PointerEvent) => {
-        if (node.path === '.' || !projectPath || renamingPath) return;
+        if (node.ghostSource || node.path === '.' || !projectPath || renamingPath) return;
         const sel = selectedPathsRef.current;
         let items: TreeDragItem[];
         if (sel.has(node.path) && sel.size > 1) {
             items = rowsRef.current
-                .filter((r) => sel.has(r.node.path) && r.node.path !== '.')
+                .filter((r) => sel.has(r.node.path) && r.node.path !== '.' && !r.node.ghostSource)
                 .map((r) => ({ relPath: r.node.path, name: r.node.name, isDirectory: r.node.isDirectory }));
         } else {
             items = [{ relPath: node.path, name: node.name, isDirectory: node.isDirectory }];
@@ -630,6 +650,7 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
 
     const handleDoubleClick = useCallback((node: FileTreeNode) => {
         if (node.isDirectory) return;
+        if (node.ghostSource) { setGhostPreview(node); return; }
         const path = node.path;
         const lower = path.toLowerCase();
         const fullFilePath = `${projectPath}/${path}`;
@@ -679,6 +700,7 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
     ) => {
         e.preventDefault();
         e.stopPropagation();
+        if (node.ghostSource) { if (!node.isDirectory) setGhostPreview(node); return; }
         const options = buildFileContextMenuOptions({
             node: { path: node.path, name: getFileName(node.path), isDirectory: node.isDirectory },
             projectPath,
@@ -721,8 +743,9 @@ const FileTree: React.FC<FileTreeProps> = ({ searchQuery }) => {
                     setTreeFocused(false);
                 }
             }}
-            onKeyDown={handleTypeAhead}
+            onKeyDown={ghostPreview ? undefined : handleTypeAhead}
         >
+            {ghostPreview && <React.Suspense fallback={null}><InheritedFilePreview node={ghostPreview} projectPath={projectPath} onClose={() => setGhostPreview(null)} onCopied={refreshFileTree} /></React.Suspense>}
             <VirtualizedList
                 ref={listRef}
                 totalRows={rows.length}
@@ -959,7 +982,7 @@ const TreeRow: React.FC<TreeRowProps> = React.memo(({
             data-drop-path={node.isDirectory ? node.path : undefined}
         >
             <div
-                className={`file-tree__item ${isSelected ? 'file-tree__item--selected' : ''} ${statusClass}${isDropTarget ? ' file-tree__item--drop-target' : ''}${isFocused ? ' file-tree__item--focused' : ''}`}
+                className={`file-tree__item ${node.ghostSource ? 'file-tree__item--ghost' : ''} ${isSelected ? 'file-tree__item--selected' : ''} ${statusClass}${isDropTarget ? ' file-tree__item--drop-target' : ''}${isFocused ? ' file-tree__item--focused' : ''}`}
                 style={{ paddingLeft: 4 + depth * 12 }}
                 onPointerDown={handlePointerDown}
                 onClick={handleClick}

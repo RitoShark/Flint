@@ -191,3 +191,6 @@ input.search-box__input {
 .ghost-tree__branch { padding-left: 12px; }
 .ghost-tree__file { display: flex; width: 100%; justify-content: flex-start; color: var(--text-muted); font-style: italic; text-align: left; overflow: hidden; }
 .ghost-tree__preview { height: 55vh; min-height: 250px; position: relative; display: flex; }
+
+.file-tree__item--ghost { color: var(--text-muted); font-style: italic; opacity: .65; }
+.file-tree__item--ghost:hover { opacity: 1; }
