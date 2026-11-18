@@ -31,4 +31,32 @@ describe('idle particle attachment sampling', () => {
         expect(Array.from(hand.basisInto(0,new Float32Array(9)))).toEqual([1,0,0,0,1,0,0,0,1]);
         scene.dispose(); engine.dispose();
     });
+
+    it('computes absolute matrices for all roots when bone[0] is a childless buffbone', () => {
+        const engine = new NullEngine();
+        const scene = new Scene(engine);
+        const mesh = new Mesh('champion', scene);
+        const joint = (id: number, parent_id: number, name: string, y: number): BoneData => ({
+            id,
+            parent_id,
+            name,
+            local_translation: [0, y, 0],
+            local_rotation: [0, 0, 0, 1],
+            local_scale: [1, 1, 1],
+            world_position: [0, y, 0],
+        });
+        const joints = [
+            joint(0, -1, 'Buffbone_Cstm_Healthbar', 150),
+            joint(1, -1, 'Root', 10),
+            joint(2, 1, 'Pelvis', 90),
+        ];
+        const built = buildBabylonSkeleton({ name: 'multi-root', asset_name: 'multi-root', bones: joints, influences: [1, 2] }, scene);
+        built.skeleton.computeAbsoluteMatrices(true);
+        const rootPos = built.bones[1].getAbsolutePosition(mesh);
+        const pelvisPos = built.bones[2].getAbsolutePosition(mesh);
+        expect(rootPos.y).toBeCloseTo(10, 4);
+        expect(pelvisPos.y).toBeCloseTo(100, 4);
+        scene.dispose();
+        engine.dispose();
+    });
 });

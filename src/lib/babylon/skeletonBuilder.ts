@@ -355,6 +355,19 @@ export function buildBabylonSkeleton(
         ensure(i, 0);
     }
 
+    skeleton.computeAbsoluteMatrices = (forceUpdate = false): void => {
+        const internal = skeleton as unknown as { _absoluteTransformIsDirty: boolean };
+        if (internal._absoluteTransformIsDirty || forceUpdate) {
+            for (const bone of skeleton.bones) {
+                if (!bone.getParent()) {
+                    bone.computeAbsoluteMatrices();
+                }
+            }
+            internal._absoluteTransformIsDirty = false;
+        }
+    };
+    skeleton.computeAbsoluteMatrices(true);
+
     return {
         skeleton,
         bones: bones as Bone[],
