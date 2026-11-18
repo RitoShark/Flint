@@ -1,3 +1,6 @@
+import { DlSlider } from '../ui/design-lab/DlSlider';
+import { Input } from '../ui/FormField';
+import { Button } from '../ui/Button';
 /*
  * ColorPicker — self-contained popover picker (ported from Quartz's paint
  * picker). A saturation/value square, a hue strip and a hex field, opened near
@@ -18,6 +21,8 @@ interface PickerState {
     anchor: { left: number; top: number; bottom: number; right: number };
     hex: string;
     onCommit: (hex: string) => void;
+    alpha?: number;
+    onAlpha?: (alpha: number) => void;
 }
 
 let openController: ((s: PickerState | null) => void) | null = null;
@@ -26,6 +31,7 @@ export function openColorPicker(
     event: { currentTarget?: Element | null; target?: EventTarget | null },
     initialHex: string,
     onCommit: (hex: string) => void,
+    options?: { alpha: number; onAlpha: (alpha: number) => void },
 ): void {
     const el = (event.currentTarget || event.target) as Element | null;
     const rect = el && 'getBoundingClientRect' in el
@@ -35,6 +41,7 @@ export function openColorPicker(
         anchor: { left: rect.left, top: rect.top, bottom: rect.bottom, right: rect.right },
         hex: initialHex || '#808080',
         onCommit,
+        ...options,
     });
 }
 
@@ -204,12 +211,13 @@ export function ColorPickerHost() {
             <div className="fcp-hue" onMouseDown={(e) => startDrag(e, e.currentTarget, handleHue)}>
                 <div className="fcp-hue-thumb" style={{ left: `${(h / 360) * 100}%` }} />
             </div>
+            {state.alpha !== undefined && <div className="fcp-alpha"><span>Opacity</span><DlSlider aria-label="Palette opacity" min={0} max={1} step={0.01} value={state.alpha} onChange={alpha => { state.onAlpha?.(alpha); setState(previous => previous ? { ...previous, alpha } : null); }} /><output>{Math.round(state.alpha * 100)}%</output></div>}
             <div className="fcp-row">
-                <button type="button" className="fcp-pipette" onClick={pickScreenColor} title="Pick a color from the screen">
+                <Button size="sm" variant="ghost" onClick={pickScreenColor} title="Pick a color from the screen">
                     {PIPETTE}
-                </button>
+                </Button>
                 <div className="fcp-swatch" style={{ background: currentHex }} />
-                <input
+                <Input aria-label="Hex color"
                     className="fcp-hex"
                     value={hexText}
                     spellCheck={false}

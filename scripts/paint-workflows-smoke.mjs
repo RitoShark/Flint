@@ -31,9 +31,10 @@ const bundle = await build({
     stdin: { resolveDir: root, loader: 'tsx', contents: `
         import React, { useState } from 'react';
         import { createRoot } from 'react-dom/client';
+        import { ColorPickerHost } from './src/components/common/ColorPicker';
         import { PaintPanel } from './src/components/preview/paint/PaintPanel';
         import './src/styles/index.css';
-        function App() { return <div style={{ height: '100vh' }}><PaintPanel binPath="fixture.bin" /></div>; }
+        function App() { return <div style={{ height: '100vh' }}><PaintPanel binPath="fixture.bin" /><ColorPickerHost /></div>; }
         createRoot(document.getElementById('root')).render(<App />);
     ` },
 });
@@ -57,18 +58,32 @@ try {
     await page.screenshot({ path: '../.tmp/flint-paint-hue.png' });
     await page.getByTitle('Recolor mode', { exact: true }).click();
     await page.getByRole('option', { name: 'Palette gradient', exact: true }).click();
-    await page.getByRole('radio', { name: 'Palette color 2', exact: true }).last().check();
-    await page.getByLabel('Palette position').fill('0');
-    const points = page.locator('.paint-palette-manager .gradient-stops__position');
-    assert.notEqual((await points.nth(0).boundingBox()).y, (await points.nth(1).boundingBox()).y);
-    await page.getByRole('radio', { name: 'Palette color 1', exact: true }).last().check();
-    await page.getByRole('radio', { name: 'Palette color 2', exact: true }).last().check();
-    await page.getByLabel('Palette position').fill('1');
-    await page.getByRole('radio', { name: 'Palette color 1', exact: true }).last().check();
+    assert.equal(await page.locator('.gradient-stops').count(), 0);
+    const count = page.getByRole('slider', { name: 'Palette color count', exact: true });
+    await count.press('Home');
+    await count.press('ArrowRight');
+    await count.press('ArrowRight');
+    assert.equal(await page.locator('.palette-swatches__item').count(), 3);
+    await page.getByRole('button', { name: 'Palette color 2', exact: true }).click();
+    assert.equal(await page.getByRole('dialog').count(), 0);
     await page.getByLabel('Hex color', { exact: true }).fill('#22aaff');
+    await page.getByLabel('Palette opacity', { exact: true }).press('Home');
+    await page.getByLabel('Hex color', { exact: true }).fill('#33bbff');
+    await page.screenshot({ path: '../.tmp/flint-palette-popover.png' });
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'Palette Manager', exact: true }).click();
+    await page.getByLabel('Palette name', { exact: true }).fill('Sky');
+    await page.getByRole('button', { name: 'Save palette', exact: true }).click();
     await page.getByRole('button', { name: 'Close', exact: true }).click();
+    await count.press('Home');
+    assert.equal(await page.locator('.palette-swatches__item').count(), 1);
+    await page.getByRole('button', { name: 'Palette Manager', exact: true }).click();
+    await page.getByRole('button', { name: 'Load', exact: true }).click();
+    assert.equal(await page.locator('.palette-swatches__item').count(), 3);
     await page.getByRole('button', { name: 'Recolor (12)', exact: true }).click();
     assert.equal(await page.evaluate(() => window.recolor[4].mode), 'linear');
+    assert.deepEqual(await page.evaluate(() => window.recolor[3].map(stop => stop.time)), [0, .5, 1]);
+    assert.deepEqual(await page.evaluate(() => window.recolor[3][1].vec4), [0.2, 187/255, 1, 0]);
     assert.equal(await page.getByRole('button', { name: 'Undo', exact: true }).textContent(), '');
     assert.equal(await page.getByRole('button', { name: 'Redo', exact: true }).textContent(), '');
     assert.equal(await page.locator('.paint-settings').count(), 0);

@@ -56,7 +56,7 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
     const [searchQuery, setSearchQuery] = useState('');
 
     const [mode, setMode] = useState<RecolorModeId>('linear');
-    const [palette, setPalette] = useState<PaletteStopInput[]>([{ vec4: [1,0,0,1], time: 0 }, { vec4: [0,0,1,1], time: 1 }]);
+    const [palette, setPalette] = useState<PaletteStopInput[]>([{ vec4: [236 / 255, 185 / 255, 106 / 255, 1], time: 0 }]);
     const [shift, setShift] = useState<[number,number,number]>([0,0,0]);
     const [recoloring, setRecoloring] = useState(false);
     const [hueTarget, setHueTarget] = useState(0);

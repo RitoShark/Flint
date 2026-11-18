@@ -624,3 +624,15 @@ html[data-glass='on'] .paint-footer {
     .paint-footer { flex-wrap: wrap; }
     .paint-footer__recolor { min-width: 100px; }
 }
+
+.paint-palette-controls { gap: 4px; }
+.paint-palette-count { display: flex; flex: 1; align-items: center; gap: 14px; min-width: 140px; }
+.paint-palette-count > span { white-space: nowrap; color: var(--accent-primary); }
+.paint-palette-count .dl-slider { flex: 1; }
+.paint-palette-library__save { display: flex; align-items: center; gap: 10px; }
+.paint-palette-library__save .form-input { flex: 1; min-width: 0; }
+.paint-palette-library__row { display: flex; gap: 10px; align-items: center; padding: 12px 0; border-top: 1px solid var(--border); }
+.paint-palette-library__info { flex: 1; min-width: 0; display: grid; gap: 8px; }
+.paint-palette-library__info strong { overflow: hidden; text-overflow: ellipsis; }
+.paint-palette-library__preview { display: flex; height: 18px; overflow: hidden; border-radius: var(--dl-radius-sm); }
+.paint-palette-library__preview span { flex: 1; }

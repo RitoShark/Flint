@@ -117,3 +117,6 @@
     transform: scale(1.08);
     border-color: color-mix(in oklab, var(--accent-primary) 55%, var(--border));
 }
+
+.fcp-alpha { display: grid; grid-template-columns: auto minmax(0, 1fr) 32px; align-items: center; gap: 8px; font-size: 11px; color: var(--text-secondary); }
+.fcp-alpha output { text-align: right; }
