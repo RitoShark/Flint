@@ -1,3 +1,4 @@
+import { Modal, ModalHeader, ModalBody, ModalFooter } from '../../ui/Modal';
 import { GradientStops } from '../../ui/GradientStops';
 import { DlSelect } from '../../ui/design-lab/DlSelect';
 import { Input } from '../../ui/FormField';
@@ -22,14 +23,16 @@ export function PaletteControls({ mode, onMode, palette, onPalette, shift, onShi
 }) {
     const [presets, setPresets] = useState(readPresets);
     const [name, setName] = useState('');
+    const [managerOpen, setManagerOpen] = useState(false);
     const [selectedStop, setSelectedStop] = useState(0);
     const activeStop = Math.min(selectedStop, palette.length - 1);
     const [error, setError] = useState('');
     const persist = (next: Preset[]) => { try { localStorage.setItem(key, JSON.stringify(next)); setPresets(next); setError(''); } catch (e) { setError(String(e)); } };
     return <div className="paint-palette-controls">
-        <div className="paint-control-field"><span>Mode</span><DlSelect title="Recolor mode" width="100%" value={mode} onChange={onMode} options={modes.map(([value, label]) => ({ value, label }))} /></div>
+        <GradientStops label="Palette color" stops={palette.map(stop => ({ color: vec4ToHex(stop.vec4), position: stop.time }))} selected={activeStop} onSelect={index => { setSelectedStop(index); setManagerOpen(true); }} />
+        <div className="paint-palette-toolbar"><span>Colors: {palette.length}</span><div className="paint-palette-toolbar__actions"><Button size="sm" onClick={() => setManagerOpen(true)}>Palette Manager</Button><span>Mode</span><DlSelect title="Recolor mode" width={150} value={mode} onChange={onMode} options={modes.map(([value, label]) => ({ value, label }))} /></div></div>
         {mode === 'shift' && <div className="paint-color-editor__channels">{['Hue shift', 'Saturation shift', 'Lightness shift'].map((label, index) => <label key={label}>{label}<Input type="number" min={index === 0 ? -360 : -100} max={index === 0 ? 360 : 100} value={shift[index]} onChange={e => onShift(shift.map((v,i) => i === index ? Number(e.target.value) : v) as [number, number, number])} /></label>)}</div>}
-        {mode !== 'shift-hue' && mode !== 'shift' && <>
+        {managerOpen && <Modal open onClose={() => setManagerOpen(false)}><ModalHeader title="Palette Manager" /><ModalBody><div className="paint-palette-manager">
             <GradientStops label="Palette color" stops={palette.map(stop => ({ color: vec4ToHex(stop.vec4), position: stop.time }))} selected={activeStop} onSelect={setSelectedStop} />
             {palette[activeStop] && <>
                 <ColorSurface hex={vec4ToHex(palette[activeStop].vec4)} onChange={hex => { const rgb = hexToVec4(hex); if (rgb) onPalette(palette.map((s,i) => i === activeStop ? { ...s, vec4: [rgb[0],rgb[1],rgb[2],s.vec4[3]] } : s)); }} />
@@ -45,7 +48,7 @@ export function PaletteControls({ mode, onMode, palette, onPalette, shift, onShi
                 <DlSelect title="Saved palette" placeholder="Load palette..." width="100%" value={null} resetAfterSelect options={presets.map(p => ({ value: p.name, label: p.name }))} onChange={name => { const p = presets.find(p => p.name === name); if (p) { onPalette(p.palette); onMode(p.mode); setName(p.name); } }} />
                 <Button size="sm" variant="ghost" disabled={!presets.some(p => p.name === name)} onClick={() => persist(presets.filter(p => p.name !== name))}>Delete saved</Button>
             </div></details>
-        </>}
+        </div></ModalBody><ModalFooter><Button onClick={() => setManagerOpen(false)}>Close</Button></ModalFooter></Modal>}
         {error && <p role="alert">{error}</p>}
     </div>;
 }

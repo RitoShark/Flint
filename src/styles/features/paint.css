@@ -586,31 +586,6 @@ html[data-glass='on'] .paint-footer {
 .paint-palette-controls__stop input[type=number] { width: 58px; }
 .paint-palette-controls__stop input[type=color] { width: 32px; height: 28px; padding: 0; }
 
-.paint-workspace { flex: 1; min-height: 0; display: grid; grid-template-columns: 280px minmax(0, 1fr); }
-.paint-settings { overflow: auto; min-height: 0; background: var(--bg-secondary); border-right: 1px solid var(--border); }
-.paint-settings__heading { display: grid; gap: 5px; padding: 18px 16px; }
-.paint-settings__heading strong { font-size: 15px; }
-.paint-settings__heading span { font-size: 11px; color: var(--text-muted); }
-.paint-settings__section { padding: 14px 16px; border-top: 1px solid var(--border); display: grid; gap: 12px; }
-.paint-settings__section h3 { margin: 0; font-size: 11px; color: var(--text-muted); font-weight: 500; }
-.paint-settings summary, .paint-presets summary { cursor: pointer; color: var(--text-secondary); font-size: 11px; padding: 3px 0; }
-.paint-settings .paint-toolbar__group--targets { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-.paint-settings .paint-toolbar__target { font-family: inherit; font-size: 11px; }
-.paint-settings .paint-palette-controls { max-height: none; overflow: visible; padding: 0 16px 16px; border: 0; }
-.paint-settings .paint-palette-controls > label { display: grid; gap: 8px; }
-.paint-settings select { min-width: 0; width: 100%; }
-.paint-settings .paint-palette { padding: 0 16px 18px; border: 0; }
-.paint-settings .paint-hue { flex-wrap: wrap; }
-.paint-settings .paint-hue__slider { flex-basis: 100%; order: 1; }
-.paint-content { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
-.paint-selection-count { white-space: nowrap; color: var(--text-muted); font-size: 11px; }
-.paint-content .paint-search { min-height: 52px; }
-.paint-settings .paint-color-editor__channels { grid-template-columns: 1fr; }
-.paint-palette-controls__stop { display: flex; align-items: end; width: 100%; }
-.paint-palette-controls__stop label { display: grid; gap: 5px; flex: 1; min-width: 0; }
-.paint-palette-controls__stop input { width: 100%; min-width: 0; }
-.paint-palette-controls__saved { padding-top: 10px; display: grid; grid-template-columns: 1fr 1fr; }
-.paint-palette-controls__saved input, .paint-palette-controls__saved select { width: 100%; min-width: 0; grid-column: 1 / -1; }
 .paint-picker { display: grid; gap: 12px; min-width: 0; }
 .paint-picker__surface { position: relative; height: 190px; border-radius: 8px; touch-action: none; cursor: crosshair; background-image: linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, transparent); box-shadow: inset 0 0 0 1px #ffffff18; }
 .paint-picker__surface:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: 3px; }
@@ -621,29 +596,31 @@ html[data-glass='on'] .paint-footer {
 .paint-color-editor { gap: 16px; }
 .paint-color-editor__channels { gap: 8px; }
 .paint-color-editor__channels input { height: 32px; }
-.paint-color-editor label.paint-color-editor__alpha { display: flex; align-items: center; gap: 12px; font-size: 11px; }
-.paint-color-editor__alpha input { flex: 1; min-width: 0; accent-color: var(--accent-primary); }
 .paint-color-editor__alpha output { min-width: 36px; text-align: right; }
-@media (max-width: 850px) {
-    .paint-workspace { grid-template-columns: 225px minmax(0, 1fr); }
-    .paint-settings .paint-toolbar__group--targets { grid-template-columns: 1fr; }
-    .paint-selection-count { display: none; }
-    .paint-footer__recolor { min-width: 100px; }
-}
-@media (max-width: 580px) {
-    .paint-workspace { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(130px, 38%) minmax(0, 1fr); }
-    .paint-settings { border-right: 0; border-bottom: 1px solid var(--border); }
-    .paint-footer { flex-wrap: wrap; }
-    .paint-footer__actions { flex-wrap: wrap; }
-}
-
 .paint-row--emitter.is-selected, .paint-row--param.is-selected { background: color-mix(in srgb, var(--accent-primary) 7%, var(--bg-primary)); }
 .paint-row--emitter.is-selected .paint-row__name, .paint-row--param.is-selected .paint-row__name { color: var(--text-primary); }
 
 .paint-control-field { display: grid; gap: 8px; color: var(--text-secondary); font-size: 11px; }
-.paint-settings .paint-hue { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; width: 100%; }
-.paint-settings .paint-hue .dl-slider { min-width: 0; }
-.paint-settings .paint-toolbar__group--targets { grid-template-columns: 1fr; }
 .paint-color-editor .gradient-stops input { width: 100%; }
 .paint-search .checkbox-label, .paint-row .checkbox-label { margin: 0; }
 .paint-palette-controls__saved > .dl-select-trigger { grid-column: 1 / -1; }
+
+.paint-palette-controls { max-height: none; overflow: visible; padding: 10px 16px 6px; gap: 0; }
+.paint-palette-toolbar, .paint-palette-toolbar__actions { display: flex; align-items: center; gap: 12px; }
+.paint-palette-toolbar { justify-content: space-between; color: var(--text-muted); font-size: 11px; }
+.paint-palette-toolbar > span { color: var(--accent-primary); }
+.paint-palette-manager { display: grid; gap: 16px; }
+.paint-content { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
+.paint-toolbar { padding: 6px 16px; }
+.paint-toolbar .checkbox-label, .paint-search .checkbox-label { align-items: center; white-space: nowrap; }
+.paint-toolbar .checkbox-label__label, .paint-search .checkbox-label__label { font-size: 11px; font-weight: 400; }
+.paint-row__name { font-family: var(--font-sans, inherit); }
+.paint-color-editor__alpha { display: grid; grid-template-columns: 44px minmax(0, 1fr) 36px; align-items: center; gap: 12px; font-size: 11px; color: var(--text-secondary); }
+.paint-color-editor__alpha .dl-slider { width: 100%; min-width: 0; }
+.paint-color-editor__alpha output { text-align: right; }
+@media (max-width: 650px) {
+    .paint-search, .paint-toolbar, .paint-palette-toolbar { flex-wrap: wrap; }
+    .paint-search__field { flex-basis: 70%; }
+    .paint-footer { flex-wrap: wrap; }
+    .paint-footer__recolor { min-width: 100px; }
+}

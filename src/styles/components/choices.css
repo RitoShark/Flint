@@ -21,8 +21,8 @@ input[type="checkbox"]:not(.settings-toggle input):not(.np-pbe-toggle__input):no
 input[type="checkbox"]:not(.settings-toggle input):not(.np-pbe-toggle__input):not(.dl-toggle input):hover:not(:disabled) { border-color: var(--text-primary); }
 
 input[type="checkbox"]:not(.settings-toggle input):not(.np-pbe-toggle__input):not(.dl-toggle input):is(:checked, :indeterminate) {
-  background: var(--text-primary);
-  border-color: var(--text-primary);
+  background: var(--checkbox-selected, var(--text-primary));
+  border-color: var(--checkbox-selected, var(--text-primary));
 }
 
 input[type="checkbox"]:not(.settings-toggle input):not(.np-pbe-toggle__input):not(.dl-toggle input)::before {
@@ -162,3 +162,5 @@ input[type="checkbox"]:not(.settings-toggle input):not(.np-pbe-toggle__input):no
 .dl-toggle-row__label { font-size: 13px; color: var(--text-primary); font-weight: 500; }
 
 .dl-toggle-row__desc { font-size: 11px; color: var(--text-muted); }
+
+.checkbox-label--accent { --checkbox-selected: var(--accent-primary); align-items: center; }

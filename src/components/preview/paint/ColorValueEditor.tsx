@@ -1,5 +1,6 @@
+import { DlSlider } from '../../ui/design-lab/DlSlider';
 import { GradientStops } from '../../ui/GradientStops';
-import { Input, Range } from '../../ui/FormField';
+import { Input } from '../../ui/FormField';
 import { ColorSurface } from './ColorSurface';
 import { useState } from 'react';
 import { Modal, ModalBody, ModalFooter, ModalHeader } from '../../ui/Modal';
@@ -20,7 +21,7 @@ export function ColorValueEditor({ colors, title, onApply, onClose }: {
             <div className="paint-color-editor">
                 <GradientStops stops={colors.map((color, i) => ({ color: vec4ToHex(i === index ? value : color.rgba), position: color.time }))} selected={index} disabled={busy} onSelect={i => { setIndex(i); setValue([...colors[i].rgba]); }} />
                 <ColorSurface hex={vec4ToHex(value)} disabled={busy} onChange={hex => { const rgb = hexToVec4(hex); if (rgb) setValue([rgb[0], rgb[1], rgb[2], value[3]]); }} />
-                <label className="paint-color-editor__alpha">Opacity <Range aria-label="Opacity" min={0} max={1} step={0.01} value={value[3]} disabled={busy} onChange={e => setValue(previous => [previous[0], previous[1], previous[2], Number(e.target.value)])} /><output>{Math.round(value[3] * 100)}%</output></label>
+                <div className="paint-color-editor__alpha"><span>Opacity</span><DlSlider aria-label="Opacity" min={0} max={1} step={0.01} value={value[3]} disabled={busy} onChange={alpha => setValue(previous => [previous[0], previous[1], previous[2], alpha])} /><output>{Math.round(value[3] * 100)}%</output></div>
                 <div className="paint-color-editor__channels">
                     {['Red', 'Green', 'Blue', 'Alpha'].map((label, i) => <label key={label}>{label}
                         <Input type="number" step="0.01" value={Number(value[i].toFixed(4))} disabled={busy} onChange={e => {

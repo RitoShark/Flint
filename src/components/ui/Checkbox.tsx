@@ -5,10 +5,11 @@ export interface CheckboxProps extends Omit<React.InputHTMLAttributes<HTMLInputE
     description?: React.ReactNode;
     /** Renders as a toggle-switch using `.settings-toggle` styling. */
     toggle?: boolean;
+    tone?: 'neutral' | 'accent';
 }
 
 export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
-    ({ label, description, toggle = false, className = '', id, ...rest }, ref) => {
+    ({ label, description, toggle = false, tone = 'neutral', className = '', id, ...rest }, ref) => {
         if (toggle) {
             return (
                 <label className={`settings-toggle ${className}`.trim()}>
@@ -24,7 +25,7 @@ export const Checkbox = React.forwardRef<HTMLInputElement, CheckboxProps>(
         }
 
         return (
-            <label className={`checkbox-label ${className}`.trim()}>
+            <label className={`checkbox-label ${tone === 'accent' ? 'checkbox-label--accent' : ''} ${className}`.trim()}>
                 <input ref={ref} type="checkbox" id={id} {...rest} />
                 {(label || description) && (
                     <span className="checkbox-label__content">

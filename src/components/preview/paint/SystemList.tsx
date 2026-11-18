@@ -93,7 +93,7 @@ const TriCheckbox: React.FC<{
     label: string;
     className?: string;
 }> = ({ checked, indeterminate = false, disabled, onChange, label, className }) => (
-    <Checkbox
+    <Checkbox tone="accent"
         className={className}
         checked={checked}
         disabled={disabled}

@@ -19,7 +19,7 @@ export function GradientStops({ stops, selected, onSelect, disabled, label = 'Co
     return <div className="gradient-stops" role="radiogroup" aria-label={`${label} stops`} style={{ height: 28 + lanes.length * 24 }}>
         <div className="gradient-stops__ramp" style={{ background: gradient }} />
         {stops.map((stop, index) => <div key={index} className="gradient-stops__position" style={{ left: `${positions[index] * 100}%`, top: 26 + markers[index] * 24 }}>
-            <Radio name={name} value={String(index)} checked={selected === index} disabled={disabled} onChange={() => onSelect(index)}
+            <Radio name={name} value={String(index)} checked={selected === index} disabled={disabled} onChange={() => onSelect(index)} onClick={() => { if (selected === index) onSelect(index); }}
                 className="gradient-stops__point" aria-label={`${label} ${index + 1}`} title={`${label} ${index + 1} at ${Math.round(positions[index] * 100)}%`}
                 icon={<span className="gradient-stops__color" style={{ background: stop.color }} />} />
         </div>)}

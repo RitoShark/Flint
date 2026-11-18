@@ -1,7 +1,6 @@
 import { Checkbox } from '../../ui/Checkbox';
 import { SearchInput } from '../../ui/FormField';
-import { Panel, PanelHeader } from '../../ui/Panel';
-import { Button } from '../../ui/Button';
+import { Button, IconButton } from '../../ui/Button';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as api from '../../../lib/api';
 import { useNotificationStore } from '../../../lib/stores';
@@ -56,7 +55,7 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
     const [expandedMaterials, setExpandedMaterials] = useState<Set<string>>(new Set());
     const [searchQuery, setSearchQuery] = useState('');
 
-    const [mode, setMode] = useState<RecolorModeId>('shift-hue');
+    const [mode, setMode] = useState<RecolorModeId>('linear');
     const [palette, setPalette] = useState<PaletteStopInput[]>([{ vec4: [1,0,0,1], time: 0 }, { vec4: [0,0,1,1], time: 1 }]);
     const [shift, setShift] = useState<[number,number,number]>([0,0,0]);
     const [recoloring, setRecoloring] = useState(false);
@@ -485,53 +484,20 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
 
     return (
         <div className="paint-panel">
-            <div className="paint-workspace">
-            <Panel className="paint-settings">
-                <PanelHeader className="paint-settings__heading"><strong>Recolor</strong><span>Choose a look, then select emitters</span></PanelHeader>
             <PaletteControls mode={mode} onMode={setMode} palette={palette} onPalette={setPalette} shift={shift} onShift={setShift} />
             {mode === 'shift-hue' && <PaletteBar hueTarget={hueTarget} onHueTargetChange={setHueTarget} />}
-
-                <section className="paint-settings__section"><h3>Color channels</h3>
-                <div className="paint-toolbar__group paint-toolbar__group--targets">
-                    {SLOTS.map((slot) => (
-                        <Checkbox key={slot.id} label={slot.title} title={`Recolor ${slot.title}`} checked={targets.has(slot.id)} onChange={() => toggleTarget(slot.id)} />
-                    ))}
+            <div className="paint-toolbar">
+                <div className="paint-toolbar__group"><span className="paint-toolbar__label">BM:</span>
+                    <DlSelect value={String(blendModeSelect)} onChange={v => setBlendModeSelect(Number(v))} options={[0,1,2,3,4].map(n => ({ value: String(n), label: String(n) }))} width={64} title="Blend mode to select by" />
+                    <Button size="sm" onClick={selectByBlendMode}>Select BM {blendModeSelect}</Button>
                 </div>
-                </section>
-                <section className="paint-settings__section"><h3>Preserve</h3>
-
-                <Checkbox label="Ignore black / white" title="Skip pure black and pure white" checked={ignoreBlackWhite} onChange={e => setIgnoreBlackWhite(e.target.checked)} />
-                <Checkbox label="Keep alpha" checked={preserveAlpha} onChange={e => setPreserveAlpha(e.target.checked)} />
-                </section>
-                <details className="paint-settings__section"><summary>Select by blend mode</summary>
-                <div className="paint-toolbar__group">
-                    <span className="paint-toolbar__label">BM</span>
-                    <DlSelect
-                        value={String(blendModeSelect)}
-                        onChange={(v) => setBlendModeSelect(Number(v))}
-                        options={[0, 1, 2, 3, 4].map((n) => ({ value: String(n), label: String(n) }))}
-                        width={76}
-                        title="Blend mode to select by"
-                    />
-                    {/* No `--sm`: DlSelect's trigger is 36px, so a 28px button
-                        beside it reads as a mismatched pair. Both are pinned to
-                        --paint-ctl-h in the stylesheet. */}
-                    <Button
-                        type="button"
-                        className="paint-toolbar__btn" variant="secondary"
-                        onClick={selectByBlendMode}
-                    >
-                        Select BM {blendModeSelect}
-                    </Button>
-                </div>
-
-                </details>
-            </Panel>
+                <div className="paint-toolbar__group paint-toolbar__group--targets">{SLOTS.map(slot => <Checkbox tone="accent" key={slot.id} label={slot.label} title={slot.title} checked={targets.has(slot.id)} onChange={() => toggleTarget(slot.id)} />)}</div>
+            </div>
             <div className="paint-content">
             <div className="paint-search">
                 {/* One tri-state box, like Quartz — All/None as two buttons was
                     twice the chrome for the same decision. */}
-                <Checkbox
+                <Checkbox tone="accent"
                     className="paint-search__all"
                     checked={allSelected}
                     ref={(el) => {
@@ -547,7 +513,8 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                 />
-                <span className="paint-selection-count">{selection.size} selected</span>
+                <Checkbox tone="accent" label="Ignore B/W" checked={ignoreBlackWhite} onChange={e => setIgnoreBlackWhite(e.target.checked)} />
+                <Checkbox tone="accent" label="Keep alpha" checked={preserveAlpha} onChange={e => setPreserveAlpha(e.target.checked)} />
                 <Button size="sm" variant="ghost" disabled={dirty || saving || recoloring} title={dirty ? 'Save changes before importing' : 'Import VFX systems'} onClick={() => setPortOpen(true)}>Import VFX...</Button>
             </div>
             <SystemList
@@ -573,7 +540,6 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
                 onRevealInText={revealInText}
             />
 
-            </div>
             </div>
 
             {portOpen && <VfxPortModal target={binPath} onClose={() => setPortOpen(false)} onImported={() => { setPortOpen(false); setReload(v => v + 1); onSaved?.(); }} />}
@@ -605,24 +571,8 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
                 </span>
 
                 <div className="paint-footer__actions">
-                    <Button
-                        type="button"
-                        variant="ghost" size="sm"
-                        disabled={recoloring}
-                        onClick={handleUndo}
-                        title="Undo the last edit"
-                    >
-                        Undo
-                    </Button>
-                    <Button
-                        type="button"
-                        variant="ghost" size="sm"
-                        disabled={recoloring}
-                        onClick={handleRedo}
-                        title="Redo the last undone edit"
-                    >
-                        Redo
-                    </Button>
+                    <IconButton size="sm" variant="ghost" icon="undo" title="Undo" disabled={recoloring} onClick={handleUndo} />
+                    <IconButton size="sm" variant="ghost" icon="redo" title="Redo" disabled={recoloring} onClick={handleRedo} />
                     <Button
                         type="button"
                         className="paint-footer__recolor" variant="primary"

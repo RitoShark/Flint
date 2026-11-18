@@ -53,6 +53,8 @@ const artwork = {
     package: cube,
     save: solid('M3 1h11l5 5v11a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V3a2 2 0 0 1 2-2 M5 2v5h8V2z M5 11v7h10v-7z'),
     check,
+    undo: line('M7 3L3 7l4 4 M3 7h9a5 5 0 0 1 0 10h-2'),
+    redo: line('M13 3l4 4-4 4 M17 7H8a5 5 0 0 0 0 10h2'),
     export: solid('M10 1h8a1 1 0 0 1 1 1v8h-3V6L8 14l-2-2 8-8h-4z') + line('M6 4H3v13h13v-3'),
     import: solid('M2 8h7V4l7 6-7 6v-5H2z') + line('M13 2h5v16h-5'),
     svg: page(disk(6,11,2) + disk(14,11,2) + line('M6 11l4-4 4 4 M6 11l4 5 4-5')),
