@@ -200,6 +200,7 @@ html[data-glass='on'] .paint-footer {
 }
 
 .paint-search__field {
+    margin: 0;
     flex: 1 1 auto;
     min-width: 0;
     height: var(--paint-ctl-h);
@@ -431,6 +432,8 @@ html[data-glass='on'] .paint-footer {
     gap: 4px;
     width: var(--paint-bm-w);
     height: var(--paint-block-standard-h);
+    padding: 0 6px;
+    box-sizing: border-box;
     border: 1px solid transparent;
     border-radius: var(--radius-sm);
     background: color-mix(in oklab, var(--accent-primary) 10%, transparent);
@@ -449,7 +452,11 @@ html[data-glass='on'] .paint-footer {
     flex-shrink: 0;
 }
 
-.paint-row__bm-input {
+.paint-row__bm .paint-row__bm-input {
+    flex: 1;
+    height: 100%;
+    line-height: normal;
+    box-sizing: border-box;
     width: 100%;
     min-width: 0;
     padding: 0;
@@ -636,3 +643,9 @@ html[data-glass='on'] .paint-footer {
 .paint-palette-library__info strong { overflow: hidden; text-overflow: ellipsis; }
 .paint-palette-library__preview { display: flex; height: 18px; overflow: hidden; border-radius: var(--dl-radius-sm); }
 .paint-palette-library__preview span { flex: 1; }
+
+.paint-search { flex-wrap: wrap; }
+.paint-search__field { flex: 1 1 200px; }
+.paint-search .paint-toolbar__group { flex-shrink: 0; }
+.paint-palette-toolbar { min-height: 36px; }
+.paint-palette-toolbar__actions { flex-shrink: 0; }

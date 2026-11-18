@@ -8,7 +8,6 @@ import { requestRevealText } from '../../../lib/editor/binEditorEvents';
 import { PaletteControls } from './PaletteControls';
 import { PaletteBar } from './PaletteBar';
 import { DlSelect } from '../../ui/design-lab/DlSelect';
-import { VfxPortModal } from './VfxPortModal';
 import { ColorValueEditor } from './ColorValueEditor';
 import { SystemList } from './SystemList';
 import type { Vec4 } from '../../../lib/paint/colorMath';
@@ -39,8 +38,6 @@ const SLOTS: Array<{ id: Exclude<ColorTargetId, 'all'>; label: string; title: st
 export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClose }) => {
     const showToast = useNotificationStore((s) => s.showToast);
 
-    const [portOpen, setPortOpen] = useState(false);
-    const [reload, setReload] = useState(0);
     const [editingColor, setEditingColor] = useState<{ emitterKey: string; slot: keyof EmitterColors } | null>(null);
     const [sessionId, setSessionId] = useState<number | null>(null);
     const [model, setModel] = useState<VfxModel | null>(null);
@@ -117,7 +114,7 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
         return () => {
             cancelled = true;
         };
-    }, [binPath, reload]);
+    }, [binPath]);
 
     // Close the live session when the panel goes away for good.
     useEffect(
@@ -486,13 +483,6 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
         <div className="paint-panel">
             <PaletteControls mode={mode} onMode={setMode} palette={palette} onPalette={setPalette} shift={shift} onShift={setShift} />
             {mode === 'shift-hue' && <PaletteBar hueTarget={hueTarget} onHueTargetChange={setHueTarget} />}
-            <div className="paint-toolbar">
-                <div className="paint-toolbar__group"><span className="paint-toolbar__label">BM:</span>
-                    <DlSelect value={String(blendModeSelect)} onChange={v => setBlendModeSelect(Number(v))} options={[0,1,2,3,4].map(n => ({ value: String(n), label: String(n) }))} width={64} title="Blend mode to select by" />
-                    <Button size="sm" onClick={selectByBlendMode}>Select BM {blendModeSelect}</Button>
-                </div>
-                <div className="paint-toolbar__group paint-toolbar__group--targets">{SLOTS.map(slot => <Checkbox tone="accent" key={slot.id} label={slot.label} title={slot.title} checked={targets.has(slot.id)} onChange={() => toggleTarget(slot.id)} />)}</div>
-            </div>
             <div className="paint-content">
             <div className="paint-search">
                 {/* One tri-state box, like Quartz — All/None as two buttons was
@@ -507,15 +497,19 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
                     title={allSelected || someSelected ? 'Deselect all' : 'Select all emitters'}
                     aria-label="Select all emitters"
                 />
+                <div className="paint-toolbar__group"><span className="paint-toolbar__label">BM:</span>
+                    <DlSelect value={String(blendModeSelect)} onChange={v => setBlendModeSelect(Number(v))} options={[0,1,2,3,4].map(n => ({ value: String(n), label: String(n) }))} width={64} title="Blend mode to select by" />
+                    <Button size="sm" onClick={selectByBlendMode}>Select BM {blendModeSelect}</Button>
+                </div>
                 <SearchInput
                     className="paint-search__field"
                     placeholder="Filter systems and emitters…"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                 />
+                <div className="paint-toolbar__group paint-toolbar__group--targets">{SLOTS.map(slot => <Checkbox tone="accent" key={slot.id} label={slot.label} title={slot.title} checked={targets.has(slot.id)} onChange={() => toggleTarget(slot.id)} />)}</div>
                 <Checkbox tone="accent" label="Ignore B/W" checked={ignoreBlackWhite} onChange={e => setIgnoreBlackWhite(e.target.checked)} />
                 <Checkbox tone="accent" label="Keep alpha" checked={preserveAlpha} onChange={e => setPreserveAlpha(e.target.checked)} />
-                <Button size="sm" variant="ghost" disabled={dirty || saving || recoloring} title={dirty ? 'Save changes before importing' : 'Import VFX systems'} onClick={() => setPortOpen(true)}>Import VFX...</Button>
             </div>
             <SystemList
                 model={model}
@@ -542,7 +536,6 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
 
             </div>
 
-            {portOpen && <VfxPortModal target={binPath} onClose={() => setPortOpen(false)} onImported={() => { setPortOpen(false); setReload(v => v + 1); onSaved?.(); }} />}
             {editingColor && (() => {
                 const emitter = model.emitters.find(e => e.key === editingColor.emitterKey);
                 const colors = emitter?.colors[editingColor.slot]?.keyframes;

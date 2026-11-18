@@ -52,6 +52,16 @@ try {
     const errors = [];
     page.on('pageerror', error => errors.push(String(error)));
     await page.goto(`http://127.0.0.1:${server.address().port}`);
+    assert.equal(await page.getByRole('button', { name: 'Import VFX...', exact: true }).count(), 0);
+    assert.equal(await page.locator('.paint-toolbar').count(), 0);
+    const toolbarCenters = await page.locator('.paint-search').evaluate(el => [...el.children].map(child => { const box = child.getBoundingClientRect(); return box.y + box.height / 2; }));
+    assert.ok(Math.max(...toolbarCenters) - Math.min(...toolbarCenters) < 2, 'Search and blend controls share one centered row');
+    const paletteCenters = await page.locator('.paint-palette-toolbar').evaluate(el => [...el.querySelectorAll('.paint-palette-count > span, .dl-slider input, .paint-palette-toolbar__actions > *')].map(child => { const box = child.getBoundingClientRect(); return box.y + box.height / 2; }));
+    assert.ok(Math.max(...paletteCenters) - Math.min(...paletteCenters) < 2, 'Palette count, slider and actions share a center');
+    const bm = page.locator('.paint-row__bm').first();
+    const bmBoxes = await bm.evaluate(el => [el, ...el.children].map(child => { const box = child.getBoundingClientRect(); return { y: box.y, height: box.height }; }));
+    assert.ok(bmBoxes[2].height <= bmBoxes[0].height, 'BM input fits its row');
+    assert.ok(Math.abs(bmBoxes[1].y + bmBoxes[1].height / 2 - bmBoxes[2].y - bmBoxes[2].height / 2) < 2, 'BM label and value align');
     await page.getByLabel('Select all emitters', { exact: true }).check();
     await page.getByRole('button', { name: 'Recolor (12)', exact: true }).click();
     assert.equal(await page.evaluate(() => window.recolor[1].length), 12);

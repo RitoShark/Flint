@@ -456,6 +456,7 @@ export const SystemList: React.FC<SystemListProps> = ({
                                 key={`${row.key}-${emitter.blendMode}`}
                                 type="text"
                                 className="paint-row__bm-input"
+                                sizeVariant="sm"
                                 defaultValue={emitter.blendMode}
                                 disabled={state.locked}
                                 onKeyDown={(e) => {

@@ -193,6 +193,7 @@
 .dl-slider { position: relative; display: block; width: 100%; --_value: 0%; --_thumb: 16px; }
 
 .dl-slider input[type=range] {
+  display: block;
   appearance: none;
   -webkit-appearance: none;
   width: 100%;
