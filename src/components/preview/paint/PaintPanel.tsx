@@ -499,7 +499,7 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
                 />
                 <div className="paint-toolbar__group"><span className="paint-toolbar__label">BM:</span>
                     <DlSelect value={String(blendModeSelect)} onChange={v => setBlendModeSelect(Number(v))} options={[0,1,2,3,4].map(n => ({ value: String(n), label: String(n) }))} width={64} title="Blend mode to select by" />
-                    <Button size="sm" onClick={selectByBlendMode}>Select BM {blendModeSelect}</Button>
+                    <Button size="md" onClick={selectByBlendMode}>Select BM {blendModeSelect}</Button>
                 </div>
                 <SearchInput
                     className="paint-search__field"

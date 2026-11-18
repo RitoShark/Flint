@@ -1,6 +1,6 @@
 .paint-panel {
     --paint-row-h: 42px;
-    --paint-ctl-h: 30px;
+    --paint-ctl-h: var(--btn-h-md);
     --paint-gap: 10px;
     --paint-pad-x: 16px;
     --paint-band-pad-y: 9px;

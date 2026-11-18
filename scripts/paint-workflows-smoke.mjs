@@ -54,6 +54,14 @@ try {
     await page.goto(`http://127.0.0.1:${server.address().port}`);
     assert.equal(await page.getByRole('button', { name: 'Import VFX...', exact: true }).count(), 0);
     assert.equal(await page.locator('.paint-toolbar').count(), 0);
+    const blendSelector = await page.getByTitle('Blend mode to select by', { exact: true }).boundingBox();
+    const blendAction = await page.getByRole('button', { name: 'Select BM 0', exact: true }).boundingBox();
+    assert.equal(blendSelector.height, blendAction.height, 'Blend selector and action use the same height');
+    assert.equal(blendSelector.y, blendAction.y, 'Blend selector and action share the top edge');
+    const paletteAction = await page.getByRole('button', { name: 'Palette Manager', exact: true }).boundingBox();
+    const modeSelector = await page.getByTitle('Recolor mode', { exact: true }).boundingBox();
+    assert.equal(paletteAction.height, modeSelector.height, 'Palette actions and selector use the same height');
+
     const toolbarCenters = await page.locator('.paint-search').evaluate(el => [...el.children].map(child => { const box = child.getBoundingClientRect(); return box.y + box.height / 2; }));
     assert.ok(Math.max(...toolbarCenters) - Math.min(...toolbarCenters) < 2, 'Search and blend controls share one centered row');
     const paletteCenters = await page.locator('.paint-palette-toolbar').evaluate(el => [...el.querySelectorAll('.paint-palette-count > span, .dl-slider input, .paint-palette-toolbar__actions > *')].map(child => { const box = child.getBoundingClientRect(); return box.y + box.height / 2; }));

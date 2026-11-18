@@ -52,11 +52,11 @@ export function PaletteControls({ mode, onMode, palette, onPalette, shift, onShi
         <PaletteSwatches colors={palette.map(stop => vec4ToHex(stop.vec4))} onPick={pick} />
         <div className="paint-palette-toolbar">
             <div className="paint-palette-count"><span>Colors: {palette.length}</span><DlSlider aria-label="Palette color count" min={1} max={20} step={1} value={palette.length} onChange={resize} /></div>
-            <div className="paint-palette-toolbar__actions"><Button size="sm" onClick={() => { cleanupColorPickers(); setManagerOpen(true); }}>Palette Manager</Button><span>Mode</span><DlSelect title="Recolor mode" width={150} value={mode} onChange={onMode} options={modes.map(([value, label]) => ({ value, label }))} /></div>
+            <div className="paint-palette-toolbar__actions"><Button size="md" onClick={() => { cleanupColorPickers(); setManagerOpen(true); }}>Palette Manager</Button><span>Mode</span><DlSelect title="Recolor mode" width={150} value={mode} onChange={onMode} options={modes.map(([value, label]) => ({ value, label }))} /></div>
         </div>
         {mode === 'shift' && <div className="paint-color-editor__channels">{['Hue shift', 'Saturation shift', 'Lightness shift'].map((label, index) => <label key={label}>{label}<Input type="number" min={index === 0 ? -360 : -100} max={index === 0 ? 360 : 100} value={shift[index]} onChange={e => onShift(shift.map((v,i) => i === index ? Number(e.target.value) : v) as [number, number, number])} /></label>)}</div>}
         {managerOpen && <Modal open onClose={() => setManagerOpen(false)}><ModalHeader title="Palette Manager" /><ModalBody><div className="paint-palette-manager">
-            <div className="paint-palette-library__save"><Input aria-label="Palette name" placeholder="Palette name" value={name} onChange={e => setName(e.target.value)} /><Button size="sm" disabled={!name.trim()} onClick={() => persist([...presets.filter(p => p.name !== name.trim()), { name: name.trim(), mode, palette }])}>Save palette</Button></div>
+            <div className="paint-palette-library__save"><Input aria-label="Palette name" placeholder="Palette name" value={name} onChange={e => setName(e.target.value)} /><Button size="md" disabled={!name.trim()} onClick={() => persist([...presets.filter(p => p.name !== name.trim()), { name: name.trim(), mode, palette }])}>Save palette</Button></div>
             {error && <p role="alert">{error}</p>}
             {!presets.length && <p className="form-hint">Save the current palette to reuse it later.</p>}
             {presets.map(preset => <div key={preset.name} className="paint-palette-library__row">
