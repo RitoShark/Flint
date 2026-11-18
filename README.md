@@ -205,6 +205,7 @@ npm run tauri dev
   [tarngaina](https://github.com/tarngaina). Its `animask_viewer` and `sborf` were the reference
   for Flint's animation mask editor, and confirmed that `mWeightList` is indexed by SKL joint
   order.
+- **[LTK Manager](https://github.com/LeagueToolkit/ltk-manager)** for the voice rules and sound-bank inspector.
 
 ## License
 
