@@ -541,7 +541,9 @@ pub fn unhash_text(text: &str, hashes: &HashMapper) -> (String, usize) {
             let ends_clean = j >= bytes.len() || !is_ident_byte(bytes[j]);
             if ends_clean && (hex_len == 8 || hex_len == 16) {
                 let hex = &text[hex_start..j];
-                let hash = u64::from_str_radix(hex, 16).ok();
+                let hash = u64::from_str_radix(hex, 16)
+                    .ok()
+                    .filter(|&h| hex_len == 8 || h > u32::MAX as u64);
                 if let Some(name) = hash.and_then(|h| hashes.get(h)) {
                     // Already-quoted token, e.g. an entry key `"0x…"`: the printer
                     // wrote the surrounding quotes, so replace the WHOLE `"0x…"`

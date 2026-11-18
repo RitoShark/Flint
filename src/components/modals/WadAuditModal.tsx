@@ -5,6 +5,7 @@ import { useModalStore, useNavigationStore, useNotificationStore, useProjectTabS
 import { useAppMetadataStore } from '../../lib/stores/appMetadataStore';
 import { getIcon } from '../../lib/ui-helpers/fileIcons';
 import { issueNeedle, issueTagsFromIssues } from '../../lib/audit/projectAudit';
+import { issueGuidance, issueRepair } from '../../lib/editor/binIssueActions';
 import { requestRevealLine, requestRevealText } from '../../lib/editor/binEditorEvents';
 import { revealInTree } from '../../lib/editor/revealInTree';
 import { VirtualList } from '../preview/VirtualList';
@@ -279,6 +280,33 @@ export const WadAuditModal: React.FC = () => {
         [folderPath, fixing, showToast, scan],
     );
 
+    const runBinRepair = useCallback(
+        async (file: string, kind: api.BinRepairKind) => {
+            if (fixing) return;
+            setFixing(true);
+            try {
+                const report = await api.repairWadBinFile(folderPath, file, kind);
+                if (report.changed > 0) {
+                    useAppMetadataStore.getState().incrementFileVersion(absPath(file));
+                    showToast(
+                        'success',
+                        report.repaired[0] || `Repaired ${report.changed} item${report.changed === 1 ? '' : 's'}`,
+                    );
+                    await scan(false);
+                } else if (report.blocked.length) {
+                    showToast('error', report.blocked[0]);
+                } else {
+                    showToast('info', 'Nothing needed to change.');
+                }
+            } catch (e) {
+                showToast('error', e instanceof Error ? e.message : String(e));
+            } finally {
+                setFixing(false);
+            }
+        },
+        [folderPath, fixing, absPath, showToast, scan],
+    );
+
     const confirmRetypeAll = useCallback(() => {
         const files = new Set(retypable.map((i) => i.file)).size;
         useModalStore.getState().openConfirmDialog({
@@ -416,6 +444,22 @@ export const WadAuditModal: React.FC = () => {
                                             Change to {issue.fix.to}
                                         </button>
                                     )}
+                                    {!issue.fix && (() => {
+                                        const action = issueRepair(issue);
+                                        return action && (
+                                            <button
+                                                className="wa-fix"
+                                                disabled={fixing}
+                                                title={issueGuidance(issue)}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    void runBinRepair(issue.file, action.kind);
+                                                }}
+                                            >
+                                                {action.label}
+                                            </button>
+                                        );
+                                    })()}
                                     {issue.code === ALIGNMENT_CODE && (
                                         <button
                                             className="wa-fix"

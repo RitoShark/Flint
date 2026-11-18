@@ -728,6 +728,9 @@ const SAMPLER_DEF_CLASS: u32 = fnv1a("StaticMaterialShaderSamplerDef");
 const SAMPLER_NAME_FIELD: u32 = fnv1a("samplerName");
 const TEXTURE_NAME_FIELD: u32 = fnv1a("textureName");
 
+const STATIC_MATERIAL_DEF_CLASS: u32 = fnv1a("StaticMaterialDef");
+const MATERIAL_NAME_FIELD: u32 = fnv1a("name");
+
 fn old_vfx_shape(value: &BinValue, count: &mut usize) {
     if let BinValue::Pointer { fields, .. } | BinValue::Embed { fields, .. } = value {
         if let Some(BinValue::Pointer { fields: shape, .. } | BinValue::Embed { fields: shape, .. }) =
@@ -797,6 +800,40 @@ fn stale_samplers(value: &BinValue, count: &mut usize) {
     }
 }
 
+fn narrow_material_hashes(class: u32, fields: &IndexMap<u32, BinValue>, count: &mut usize) {
+    if class == STATIC_MATERIAL_DEF_CLASS
+        && matches!(fields.get(&MATERIAL_NAME_FIELD), Some(BinValue::Hash(_)))
+    {
+        *count += 1;
+    }
+    for inner in fields.values() {
+        narrow_material_hashes_in_value(inner, count);
+    }
+}
+
+fn narrow_material_hashes_in_value(value: &BinValue, count: &mut usize) {
+    match value {
+        BinValue::Pointer { class, fields } | BinValue::Embed { class, fields } => {
+            narrow_material_hashes(*class, fields, count);
+        }
+        BinValue::List { items, .. } => {
+            for item in items {
+                narrow_material_hashes_in_value(item, count);
+            }
+        }
+        BinValue::Map { entries, .. } => {
+            for (k, v) in entries {
+                narrow_material_hashes_in_value(k, count);
+                narrow_material_hashes_in_value(v, count);
+            }
+        }
+        BinValue::Option {
+            value: Some(inner), ..
+        } => narrow_material_hashes_in_value(inner, count),
+        _ => {}
+    }
+}
+
 /**
 Checks one BIN for content the client rejects or misreads: shipped gameplay entries,
 pre-14.1 VFX emitter shapes, and pre-rename `StaticMaterialShaderSamplerDef` fields.
@@ -827,6 +864,7 @@ pub fn check_bin_hazards(bin: &Bin, rel: &str, text: Option<&str>) -> Vec<CheckI
 
     let mut old_shapes = 0usize;
     let mut samplers = 0usize;
+    let mut narrow_materials = 0usize;
     for entry in &bin.entries {
         if entry.class_hash == VFX_SYSTEM_CLASS {
             for value in entry.fields.values() {
@@ -836,6 +874,27 @@ pub fn check_bin_hazards(bin: &Bin, rel: &str, text: Option<&str>) -> Vec<CheckI
         for value in entry.fields.values() {
             stale_samplers(value, &mut samplers);
         }
+        narrow_material_hashes(entry.class_hash, &entry.fields, &mut narrow_materials);
+    }
+    if narrow_materials > 0 {
+        out.push(
+            CheckIssue::new(
+                Severity::Critical,
+                "bin.narrow-material-hash",
+                rel,
+                format!(
+                    "{narrow_materials} material definition{} a 4-byte StaticMaterialDef.name hash instead of the 8-byte XXH3 hash the client reads now. This shifts the binary stream by 4 bytes and crashes the game on spawn.",
+                    if narrow_materials == 1 { " stores" } else { "s store" },
+                ),
+            )
+            .at(text.and_then(|t| {
+                declaration_lines(t, STATIC_MATERIAL_DEF_CLASS, "name", "hash")
+                    .first()
+                    .copied()
+            }))
+            .expecting("name: hash = 0x<16-digit xxh3>")
+            .detailing("Riot widened StaticMaterialDef.name (0x8d39bde6) from a 4-byte FNV-1a hash to an 8-byte XXH3-64 hash without changing the hash type tag. In ritobin text, a quoted string or 8-digit hex literal under name: hash writes a 4-byte hash; a 16-digit 0x literal writes the 8-byte hash. Open this issue to convert material names to 64-bit XXH3 hashes."),
+        );
     }
     if old_shapes > 0 {
         out.push(CheckIssue::new(
@@ -1995,5 +2054,27 @@ nothing to see"),
             ..Bin::new()
         };
         assert!(check_animation_graph(&bin, "a.bin", &HashMapper::new()).is_empty());
+    }
+
+    #[test]
+    fn a_four_byte_static_material_def_name_hash_is_critical() {
+        let bin = entry(
+            "StaticMaterialDef",
+            vec![(MATERIAL_NAME_FIELD, BinValue::Hash(0x26d94a5c))],
+        );
+        let text = "\"Some/Path\" = StaticMaterialDef {\n    name: hash = 0x26d94a5c\n}\n";
+        let issues = check_bin_hazards(&bin, "a.bin", Some(text));
+        assert_eq!(codes(&issues), vec!["bin.narrow-material-hash"]);
+        assert_eq!(issues[0].severity, Severity::Critical);
+        assert_eq!(issues[0].line, Some(2));
+    }
+
+    #[test]
+    fn an_eight_byte_static_material_def_name_hash_is_clean() {
+        let bin = entry(
+            "StaticMaterialDef",
+            vec![(MATERIAL_NAME_FIELD, BinValue::Hash64(0x5e4d60ca43de29a1))],
+        );
+        assert!(check_bin_hazards(&bin, "a.bin", None).is_empty());
     }
 }

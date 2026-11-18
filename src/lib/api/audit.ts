@@ -123,7 +123,7 @@ export async function fixVfxShapes(text: string): Promise<ShapeFixResult> {
     return invokeCommand('fix_vfx_shapes', { text });
 }
 
-export type BinRepairKind = 'all' | 'types' | 'samplers' | 'shapes' | 'retags';
+export type BinRepairKind = 'all' | 'types' | 'samplers' | 'shapes' | 'retags' | 'materials';
 
 export interface BinRepairResult {
     text: string;
@@ -133,4 +133,12 @@ export interface BinRepairResult {
 
 export async function repairBinIssues(text: string, kind: BinRepairKind): Promise<BinRepairResult> {
     return invokeCommand('repair_bin_issues', { text, kind });
+}
+
+export async function repairWadBinFile(
+    folderPath: string,
+    file: string,
+    kind: BinRepairKind,
+): Promise<{ changed: number; repaired: string[]; blocked: string[] }> {
+    return invokeCommand('repair_wad_bin_file', { folderPath, file, kind });
 }

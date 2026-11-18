@@ -249,6 +249,46 @@ fn retype_one_bin(path: &Path, fixes: &[RetypeRequest]) -> Result<RetypeOutcome,
     Ok(RetypeOutcome { changed, stale })
 }
 
+#[tauri::command]
+pub async fn repair_wad_bin_file(
+    app: tauri::AppHandle,
+    folder_path: String,
+    file: String,
+    kind: flint_core::bin::repair::RepairKind,
+) -> Result<flint_core::bin::repair::RepairReport, String> {
+    let _t = crate::core::ipc_trace::enter("repair_wad_bin_file");
+    super::meta_schema::refresh(&app).await;
+    let schema = flint_core::bin::meta_schema::current()
+        .unwrap_or_else(flint_core::bin::meta_schema::generation_schema);
+    let folder = PathBuf::from(&folder_path);
+    let _ = restore_point(&app, &folder, 1).await;
+
+    tokio::task::spawn_blocking(move || {
+        let path = folder.join(&file);
+        let data = std::fs::read(&path).map_err(|e| format!("Failed to read: {e}"))?;
+        let mut bin = flint_core::bin::read_bin(&data).map_err(|e| format!("{e}"))?;
+        let mut dictionary = flint_core::bin::get_cached_bin_hashes().read().clone();
+        let table = flint_core::bin::name_table(&bin, &path);
+        for (hash, name) in table.names {
+            dictionary.insert(hash as u64, name);
+        }
+        for (hash, name) in table.files {
+            dictionary.insert(hash, name);
+        }
+        let report = flint_core::bin::repair::repair(&mut bin, &schema, &dictionary, kind);
+        if report.changed > 0 {
+            let bytes =
+                flint_core::bin::write_bin(&bin).map_err(|e| format!("Failed to write: {e}"))?;
+            crate::core::write_echo::mark(&path);
+            std::fs::write(&path, &bytes).map_err(|e| format!("Failed to write: {e}"))?;
+            flint_core::bin::forget_mod_root(&path);
+        }
+        Ok(report)
+    })
+    .await
+    .map_err(|e| format!("Repair task failed: {e}"))?
+}
+
 /// One restore point before the batch. A folder outside a Flint project has nowhere to
 /// put one, which is reported rather than treated as a failure.
 async fn restore_point(app: &tauri::AppHandle, folder: &Path, count: usize) -> Option<String> {

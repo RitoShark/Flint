@@ -5,7 +5,7 @@ use crate::{
 };
 use flint_hash::hash::HashMapper;
 use indexmap::IndexMap;
-use ritoshark::hash::{fnv1a, xxh64};
+use ritoshark::hash::{fnv1a, xxh3_64, xxh64};
 
 #[derive(Clone, Copy, serde::Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -15,6 +15,7 @@ pub enum RepairKind {
     Samplers,
     Shapes,
     Retags,
+    Materials,
 }
 
 #[derive(Default, serde::Serialize)]
@@ -44,6 +45,7 @@ pub fn repair(
     for entry in &mut bin.entries {
         fields(
             entry.class_hash,
+            Some(entry.path_hash),
             &mut entry.fields,
             schema,
             names,
@@ -67,12 +69,22 @@ fn label(names: &HashMapper, id: u32) -> String {
 
 fn fields(
     class: u32,
+    owner_path_hash: Option<u32>,
     fields: &mut IndexMap<u32, BinValue>,
     schema: &Schema,
     names: &HashMapper,
     kind: RepairKind,
     report: &mut RepairReport,
 ) {
+    if class == fnv1a("StaticMaterialDef")
+        && matches!(kind, RepairKind::All | RepairKind::Materials | RepairKind::Types)
+        && material_name(owner_path_hash, fields, names)
+    {
+        report.changed += 1;
+        report
+            .repaired
+            .push("Updated StaticMaterialDef.name to 64-bit XXH3 hash".into());
+    }
     if class == fnv1a("StaticMaterialShaderSamplerDef")
         && matches!(kind, RepairKind::All | RepairKind::Samplers)
     {
@@ -160,7 +172,7 @@ fn walk(
         | BinValue::Embed {
             class,
             fields: values,
-        } => fields(*class, values, schema, names, kind, report),
+        } => fields(*class, None, values, schema, names, kind, report),
         BinValue::List { items, .. } => {
             for value in items {
                 walk(value, schema, names, kind, report);
@@ -346,6 +358,40 @@ fn sampler(
     updated.extend(changed);
     *fields = updated;
     Ok(true)
+}
+
+fn material_name(
+    owner_path_hash: Option<u32>,
+    fields: &mut IndexMap<u32, BinValue>,
+    names: &HashMapper,
+) -> bool {
+    let Some(value) = fields.get_mut(&fnv1a("name")) else {
+        return false;
+    };
+    match value {
+        BinValue::Hash(id32) => {
+            let resolved = names
+                .get(*id32 as u64)
+                .filter(|s| fnv1a(s) == *id32)
+                .or_else(|| {
+                    owner_path_hash.and_then(|ph| names.get(ph as u64).filter(|s| fnv1a(s) == ph))
+                });
+            let wide = if let Some(name) = resolved {
+                xxh3_64(name)
+            } else if *id32 == 0 {
+                0
+            } else {
+                xxh3_64(&format!("0x{id32:08x}"))
+            };
+            *value = BinValue::Hash64(wide);
+            true
+        }
+        BinValue::String(s) => {
+            *value = BinValue::Hash64(xxh3_64(s));
+            true
+        }
+        _ => false,
+    }
 }
 
 #[cfg(test)]
@@ -682,5 +728,53 @@ mod tests {
             0
         );
         assert_eq!(output, input);
+    }
+
+    #[test]
+    fn upgrades_narrow_static_material_def_name_hashes_to_xxh3() {
+        let mat_name = "Characters/Kayn/Skins/Skin8/Materials/AlphaBlend_Additive_Scroll_Packed_inst";
+        let id32 = fnv1a(mat_name);
+        let expected64 = xxh3_64(mat_name);
+
+        let mut names = HashMapper::new();
+        names.insert(id32 as u64, mat_name);
+
+        let mut bin = Bin::new();
+        bin.entries.push(BinEntry {
+            path_hash: id32,
+            class_hash: fnv1a("StaticMaterialDef"),
+            fields: [(fnv1a("name"), BinValue::Hash(id32))]
+                .into_iter()
+                .collect(),
+        });
+
+        let report = repair(&mut bin, &schema(), &names, RepairKind::Materials);
+        assert_eq!(report.changed, 1);
+        assert_eq!(
+            bin.entries[0].fields[&fnv1a("name")],
+            BinValue::Hash64(expected64)
+        );
+        assert_eq!(
+            repair(&mut bin, &schema(), &names, RepairKind::Materials).changed,
+            0
+        );
+
+        let owner_name = "Characters/Kayn/Skins/Skin8/Materials/Custom_Inst";
+        let owner_ph = fnv1a(owner_name);
+        names.insert(owner_ph as u64, owner_name);
+        let mut fallback_bin = Bin::new();
+        fallback_bin.entries.push(BinEntry {
+            path_hash: owner_ph,
+            class_hash: fnv1a("StaticMaterialDef"),
+            fields: [(fnv1a("name"), BinValue::Hash(0xdeadbeef))]
+                .into_iter()
+                .collect(),
+        });
+        let report_all = repair(&mut fallback_bin, &schema(), &names, RepairKind::All);
+        assert_eq!(report_all.changed, 1);
+        assert_eq!(
+            fallback_bin.entries[0].fields[&fnv1a("name")],
+            BinValue::Hash64(xxh3_64(owner_name))
+        );
     }
 }

@@ -50,8 +50,7 @@ pub async fn repair_bin_issues(
     kind: flint_core::bin::repair::RepairKind,
 ) -> Result<BinRepairResult, String> {
     super::meta_schema::refresh(&app).await;
-    let schema = meta_schema::current()
-        .ok_or("Class metadata is unavailable. Connect to the internet and try again.")?;
+    let schema = meta_schema::current().unwrap_or_else(meta_schema::generation_schema);
     tauri::async_runtime::spawn_blocking(move || {
         let mut bin = text_to_tree(&text).map_err(|e| e.to_string())?;
         let captured = capture_names(&bin, &text);

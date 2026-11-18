@@ -4,6 +4,7 @@ export function issueRepair(issue: CheckIssue): { kind: BinRepairKind; label: st
     switch (issue.code) {
         case 'bin.old-vfx-shape': return { kind: 'shapes', label: 'Fix VFX shapes' };
         case 'bin.stale-sampler-field': return { kind: 'samplers', label: 'Repair material samplers' };
+        case 'bin.narrow-material-hash': return { kind: 'materials', label: 'Fix material name hashes' };
         case 'bin.embed-retagged': return { kind: 'retags', label: 'Migrate known classes' };
         case 'bin.schema-type-mismatch':
         case 'bin.string-ref-not-migrated':
@@ -16,6 +17,7 @@ export function issueGuidance(issue: CheckIssue): string {
     switch (issue.code) {
         case 'bin.old-vfx-shape': return 'Migrates legacy shapes and preserves their curves. Conflicting fields and unsupported layouts are kept for review.';
         case 'bin.stale-sampler-field': return 'Renames retired sampler fields and converts texture paths using current class metadata. Conflicting names or paths are left unchanged.';
+        case 'bin.narrow-material-hash': return 'Converts 4-byte StaticMaterialDef.name hashes to 8-byte XXH3-64 hashes using known material names so the client does not misalign the entry stream on spawn.';
         case 'bin.embed-retagged': return 'Applies known class migrations only when the new class accepts every existing field.';
         case 'bin.hash-ref-not-migrated': return 'Recovers original paths from known hash names before converting references. Unresolved hashes stay unchanged and appear in the repair results.';
         case 'bin.schema-type-mismatch':
