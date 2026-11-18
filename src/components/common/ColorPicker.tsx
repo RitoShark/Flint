@@ -44,7 +44,7 @@ export function cleanupColorPickers(): void {
 
 /* ── color math ─────────────────────────────────────────────────────────── */
 
-function hexToHsv(hex: string): [number, number, number] {
+export function hexToHsv(hex: string): [number, number, number] {
     const clean = hex.replace('#', '');
     const r = parseInt(clean.substring(0, 2), 16) / 255;
     const g = parseInt(clean.substring(2, 4), 16) / 255;
@@ -64,7 +64,7 @@ function hexToHsv(hex: string): [number, number, number] {
     return [h, s, max];
 }
 
-function hsvToHex(h: number, s: number, v: number): string {
+export function hsvToHex(h: number, s: number, v: number): string {
     const c = v * s;
     const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
     const m = v - c;

@@ -482,12 +482,52 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
 
     return (
         <div className="paint-panel">
+            <div className="paint-workspace">
+            <aside className="paint-settings">
+                <div className="paint-settings__heading"><strong>Recolor</strong><span>Choose a look, then select emitters</span></div>
             <PaletteControls mode={mode} onMode={setMode} palette={palette} onPalette={setPalette} shift={shift} onShift={setShift} />
             {mode === 'shift-hue' && <PaletteBar hueTarget={hueTarget} onHueTargetChange={setHueTarget} />}
 
-            {/* Blend-mode selector + color-target toggles. */}
-            <div className="paint-toolbar">
-                <Button size="sm" disabled={dirty || saving || recoloring} title={dirty ? 'Save recolor changes before importing VFX' : 'Import systems and assets from another project'} onClick={() => setPortOpen(true)}>Import VFX...</Button>
+                <section className="paint-settings__section"><h3>Color channels</h3>
+                <div className="paint-toolbar__group paint-toolbar__group--targets">
+                    {SLOTS.map((slot) => (
+                        <label
+                            key={slot.id}
+                            className={`paint-toolbar__target${
+                                targets.has(slot.id) ? ' is-on' : ''
+                            }`}
+                            title={`Recolor ${slot.title}`}
+                        >
+                            <input
+                                type="checkbox"
+                                checked={targets.has(slot.id)}
+                                onChange={() => toggleTarget(slot.id)}
+                            />
+                            {slot.title}
+                        </label>
+                    ))}
+                </div>
+                </section>
+                <section className="paint-settings__section"><h3>Preserve</h3>
+
+                <label className="paint-search__opt" title="Skip pure black and pure white">
+                    <input
+                        type="checkbox"
+                        checked={ignoreBlackWhite}
+                        onChange={(e) => setIgnoreBlackWhite(e.target.checked)}
+                    />
+                    Ignore B/W
+                </label>
+                <label className="paint-search__opt" title="Keep each color's existing alpha">
+                    <input
+                        type="checkbox"
+                        checked={preserveAlpha}
+                        onChange={(e) => setPreserveAlpha(e.target.checked)}
+                    />
+                    Keep alpha
+                </label>
+                </section>
+                <details className="paint-settings__section"><summary>Select by blend mode</summary>
                 <div className="paint-toolbar__group">
                     <span className="paint-toolbar__label">BM</span>
                     <DlSelect
@@ -509,27 +549,9 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
                     </Button>
                 </div>
 
-                <div className="paint-toolbar__group paint-toolbar__group--targets">
-                    {SLOTS.map((slot) => (
-                        <label
-                            key={slot.id}
-                            className={`paint-toolbar__target${
-                                targets.has(slot.id) ? ' is-on' : ''
-                            }`}
-                            title={`Recolor ${slot.title}`}
-                        >
-                            <input
-                                type="checkbox"
-                                checked={targets.has(slot.id)}
-                                onChange={() => toggleTarget(slot.id)}
-                            />
-                            {slot.label}
-                        </label>
-                    ))}
-                </div>
-            </div>
-
-            {/* Search + selection + view options. */}
+                </details>
+            </aside>
+            <div className="paint-content">
             <div className="paint-search">
                 {/* One tri-state box, like Quartz — All/None as two buttons was
                     twice the chrome for the same decision. */}
@@ -551,25 +573,9 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                 />
-                <span className="paint-search__sep" />
-                <label className="paint-search__opt" title="Skip pure black and pure white">
-                    <input
-                        type="checkbox"
-                        checked={ignoreBlackWhite}
-                        onChange={(e) => setIgnoreBlackWhite(e.target.checked)}
-                    />
-                    Ignore B/W
-                </label>
-                <label className="paint-search__opt" title="Keep each color's existing alpha">
-                    <input
-                        type="checkbox"
-                        checked={preserveAlpha}
-                        onChange={(e) => setPreserveAlpha(e.target.checked)}
-                    />
-                    Keep alpha
-                </label>
+                <span className="paint-selection-count">{selection.size} selected</span>
+                <Button size="sm" variant="ghost" disabled={dirty || saving || recoloring} title={dirty ? 'Save changes before importing' : 'Import VFX systems'} onClick={() => setPortOpen(true)}>Import VFX...</Button>
             </div>
-
             <SystemList
                 model={model}
                 selection={selection}
@@ -592,6 +598,9 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
                 onPickHue={pickHueFrom}
                 onRevealInText={revealInText}
             />
+
+            </div>
+            </div>
 
             {portOpen && <VfxPortModal target={binPath} onClose={() => setPortOpen(false)} onImported={() => { setPortOpen(false); setReload(v => v + 1); onSaved?.(); }} />}
             {editingColor && (() => {
