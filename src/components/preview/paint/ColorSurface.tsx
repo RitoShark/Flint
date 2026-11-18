@@ -1,3 +1,5 @@
+import { Input } from '../../ui/FormField';
+import { DlSlider } from '../../ui/design-lab/DlSlider';
 import { useEffect, useState } from 'react';
 import { hexToHsv, hsvToHex } from '../../common/ColorPicker';
 
@@ -25,7 +27,7 @@ export function ColorSurface({ hex, onChange, disabled = false }: { hex: string;
                 e.preventDefault();
                 change([hsv[0], Math.max(0, Math.min(1, hsv[1] + (e.key === 'ArrowRight' ? .01 : e.key === 'ArrowLeft' ? -.01 : 0))), Math.max(0, Math.min(1, hsv[2] + (e.key === 'ArrowUp' ? .01 : e.key === 'ArrowDown' ? -.01 : 0)))]);
             }}><span style={{ left: `${hsv[1] * 100}%`, top: `${(1-hsv[2]) * 100}%`, background: hex }} /></div>
-        <input className="paint-picker__hue" aria-label="Color hue" type="range" min={0} max={359} value={hsv[0]} disabled={disabled} onChange={e => change([Number(e.target.value), hsv[1], hsv[2]])} />
-        <label className="paint-picker__hex"><span style={{ background: hex }} />Hex<input aria-label="Hex color" value={text} disabled={disabled} maxLength={7} onChange={e => { const next = e.target.value; setText(next); if (/^#[0-9a-f]{6}$/i.test(next)) { setHsv(hexToHsv(next)); onChange(next); } }} onBlur={() => setText(hex)} /></label>
+        <DlSlider hue aria-label="Color hue" min={0} max={359} value={hsv[0]} disabled={disabled} onChange={hue => change([hue, hsv[1], hsv[2]])} />
+        <label className="paint-picker__hex"><span style={{ background: hex }} />Hex<Input aria-label="Hex color" value={text} disabled={disabled} maxLength={7} onChange={e => { const next = e.target.value; setText(next); if (/^#[0-9a-f]{6}$/i.test(next)) { setHsv(hexToHsv(next)); onChange(next); } }} onBlur={() => setText(hex)} /></label>
     </div>;
 }

@@ -1,3 +1,6 @@
+import { GradientStops } from '../../ui/GradientStops';
+import { DlSelect } from '../../ui/design-lab/DlSelect';
+import { Input } from '../../ui/FormField';
 import { ColorSurface } from './ColorSurface';
 import { useState } from 'react';
 import { Button } from '../../ui/Button';
@@ -24,23 +27,22 @@ export function PaletteControls({ mode, onMode, palette, onPalette, shift, onShi
     const [error, setError] = useState('');
     const persist = (next: Preset[]) => { try { localStorage.setItem(key, JSON.stringify(next)); setPresets(next); setError(''); } catch (e) { setError(String(e)); } };
     return <div className="paint-palette-controls">
-        <label>Mode <select aria-label="Recolor mode" value={mode} onChange={e => onMode(e.target.value as RecolorModeId)}>{modes.map(([id, title]) => <option key={id} value={id}>{title}</option>)}</select></label>
-        {mode === 'shift' && <div className="paint-color-editor__channels">{['Hue shift', 'Saturation shift', 'Lightness shift'].map((label, index) => <label key={label}>{label}<input type="number" min={index === 0 ? -360 : -100} max={index === 0 ? 360 : 100} value={shift[index]} onChange={e => onShift(shift.map((v,i) => i === index ? Number(e.target.value) : v) as [number, number, number])} /></label>)}</div>}
+        <div className="paint-control-field"><span>Mode</span><DlSelect title="Recolor mode" width="100%" value={mode} onChange={onMode} options={modes.map(([value, label]) => ({ value, label }))} /></div>
+        {mode === 'shift' && <div className="paint-color-editor__channels">{['Hue shift', 'Saturation shift', 'Lightness shift'].map((label, index) => <label key={label}>{label}<Input type="number" min={index === 0 ? -360 : -100} max={index === 0 ? 360 : 100} value={shift[index]} onChange={e => onShift(shift.map((v,i) => i === index ? Number(e.target.value) : v) as [number, number, number])} /></label>)}</div>}
         {mode !== 'shift-hue' && mode !== 'shift' && <>
-            <div className="paint-palette-controls__gradient" style={{ background: `linear-gradient(90deg, ${[...palette].sort((a,b) => a.time - b.time).map(s => `${vec4ToHex(s.vec4)} ${s.time * 100}%`).join(', ')})` }} />
-            <div className="paint-palette-controls__stops">{palette.map((stop, index) => <Button key={index} size="sm" active={index === activeStop} aria-label={`Palette color ${index + 1}`} onClick={() => setSelectedStop(index)}><span className="paint-color-editor__swatch" style={{ background: vec4ToHex(stop.vec4) }} />{index + 1}</Button>)}</div>
+            <GradientStops label="Palette color" stops={palette.map(stop => ({ color: vec4ToHex(stop.vec4), position: stop.time }))} selected={activeStop} onSelect={setSelectedStop} />
             {palette[activeStop] && <>
                 <ColorSurface hex={vec4ToHex(palette[activeStop].vec4)} onChange={hex => { const rgb = hexToVec4(hex); if (rgb) onPalette(palette.map((s,i) => i === activeStop ? { ...s, vec4: [rgb[0],rgb[1],rgb[2],s.vec4[3]] } : s)); }} />
                 <div className="paint-palette-controls__stop">
-                    <label>Position<input aria-label="Palette position" type="number" min={0} max={1} step={0.05} value={palette[activeStop].time} onChange={e => onPalette(palette.map((s,i) => i === activeStop ? { ...s, time: Math.max(0, Math.min(1, Number(e.target.value))) } : s))} /></label>
-                    <label>Alpha<input aria-label="Palette alpha" type="number" min={0} max={1} step={0.05} value={palette[activeStop].vec4[3]} onChange={e => onPalette(palette.map((s,i) => i === activeStop ? { ...s, vec4: [s.vec4[0],s.vec4[1],s.vec4[2],Number(e.target.value)] } : s))} /></label>
+                    <label>Position<Input aria-label="Palette position" type="number" min={0} max={1} step={0.05} value={palette[activeStop].time} onChange={e => onPalette(palette.map((s,i) => i === activeStop ? { ...s, time: Math.max(0, Math.min(1, Number(e.target.value))) } : s))} /></label>
+                    <label>Alpha<Input aria-label="Palette alpha" type="number" min={0} max={1} step={0.05} value={palette[activeStop].vec4[3]} onChange={e => onPalette(palette.map((s,i) => i === activeStop ? { ...s, vec4: [s.vec4[0],s.vec4[1],s.vec4[2],Number(e.target.value)] } : s))} /></label>
                     <Button size="sm" variant="ghost" disabled={palette.length <= 1} onClick={() => onPalette(palette.filter((_,i) => i !== activeStop))}>Remove</Button>
                 </div>
             </>}
             <Button size="sm" onClick={() => onPalette([...palette, { vec4: [1,1,1,1], time: 1 }])}>Add color</Button>
-            <details className="paint-presets"><summary>Saved palettes</summary><div className="paint-palette-controls__saved"><input aria-label="Palette name" placeholder="Palette name" value={name} onChange={e => setName(e.target.value)} />
+            <details className="paint-presets"><summary>Saved palettes</summary><div className="paint-palette-controls__saved"><Input aria-label="Palette name" placeholder="Palette name" value={name} onChange={e => setName(e.target.value)} />
                 <Button size="sm" disabled={!name.trim()} onClick={() => persist([...presets.filter(p => p.name !== name.trim()), { name: name.trim(), mode, palette }])}>Save palette</Button>
-                <select aria-label="Saved palette" value="" onChange={e => { const p = presets.find(p => p.name === e.target.value); if (p) { onPalette(p.palette); onMode(p.mode); setName(p.name); } }}><option value="">Load palette...</option>{presets.map(p => <option key={p.name}>{p.name}</option>)}</select>
+                <DlSelect title="Saved palette" placeholder="Load palette..." width="100%" value={null} resetAfterSelect options={presets.map(p => ({ value: p.name, label: p.name }))} onChange={name => { const p = presets.find(p => p.name === name); if (p) { onPalette(p.palette); onMode(p.mode); setName(p.name); } }} />
                 <Button size="sm" variant="ghost" disabled={!presets.some(p => p.name === name)} onClick={() => persist(presets.filter(p => p.name !== name))}>Delete saved</Button>
             </div></details>
         </>}

@@ -62,7 +62,7 @@ try {
     await page.evaluate(() => { document.querySelector('.mi-inline').style.width = '520px'; });
     assert.ok(await page.evaluate(() => document.querySelector('.mi-inline').scrollWidth <= 520));
     await page.getByRole('button', { name: 'Test color editor' }).click();
-    await page.getByRole('button', { name: 'Color 2' }).click();
+    await page.getByRole('radio', { name: 'Color 2' }).click();
     await page.getByLabel('Red', { exact: true }).fill('2.5');
     await page.getByLabel('Alpha', { exact: true }).fill('0.25');
     await page.getByRole('button', { name: 'Apply color' }).click();

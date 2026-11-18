@@ -1,3 +1,6 @@
+import { Checkbox } from '../../ui/Checkbox';
+import { Input } from '../../ui/FormField';
+import { IconButton } from '../../ui/Button';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { VirtualList } from '../VirtualList';
 import { Icon } from '../../ui/Icon';
@@ -90,8 +93,7 @@ const TriCheckbox: React.FC<{
     label: string;
     className?: string;
 }> = ({ checked, indeterminate = false, disabled, onChange, label, className }) => (
-    <input
-        type="checkbox"
+    <Checkbox
         className={className}
         checked={checked}
         disabled={disabled}
@@ -287,18 +289,9 @@ export const SystemList: React.FC<SystemListProps> = ({
                                 : row.system.name}
                         </span>
                         <span className="paint-row__meta">{row.matchingCount} emitters</span>
-                        <button
-                            type="button"
-                            className={`paint-row__lock${state.locked ? ' is-locked' : ''}`}
-                            onClick={(e) => {
-                                e.stopPropagation();
-                                onToggleLock(row.key);
-                            }}
-                            title={state.locked ? 'Unlock this system' : 'Lock this system'}
-                            aria-label={state.locked ? 'Unlock system' : 'Lock system'}
-                        >
-                            <Icon name={state.locked ? 'lockClosed' : 'lockOpen'} />
-                        </button>
+                        <IconButton size="sm" variant="ghost" active={state.locked} icon={state.locked ? 'lockClosed' : 'lockOpen'}
+                            onClick={e => { e.stopPropagation(); onToggleLock(row.key); }}
+                            title={state.locked ? 'Unlock this system' : 'Lock this system'} aria-label={state.locked ? 'Unlock system' : 'Lock system'} />
                     </div>
                 );
             }
@@ -368,7 +361,7 @@ export const SystemList: React.FC<SystemListProps> = ({
                                 onPickHue(rgba);
                             }}
                         />
-                        <input
+                        <Input
                             type="color"
                             className="paint-row__picker"
                             value={vec4ToHex(rgba)}
@@ -459,7 +452,7 @@ export const SystemList: React.FC<SystemListProps> = ({
 
                         <span className="paint-row__bm" onClick={(e) => e.stopPropagation()}>
                             <span className="paint-row__bm-label">BM:</span>
-                            <input
+                            <Input
                                 key={`${row.key}-${emitter.blendMode}`}
                                 type="text"
                                 className="paint-row__bm-input"

@@ -24,6 +24,7 @@ for (const file of files.filter(file => file.endsWith('.tsx'))) {
     }
     if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
       const tag = node.tagName.getText(ast);
+      if (file.split(path.sep).join('/').startsWith('components/preview/paint/') && ['button', 'input', 'select', 'textarea'].includes(tag)) report(node, 'Paint UI must reuse shared Button, Input, Checkbox, DlSlider and DlSelect components');
       const attributes = node.attributes.properties;
       if (tag === 'DlButton' || tag === 'DlIconButton') report(node, 'use Button or IconButton');
       const className = attributes.find(attribute => attribute.name?.getText(ast) === 'className');

@@ -1,3 +1,6 @@
+import { Checkbox } from '../../ui/Checkbox';
+import { SearchInput } from '../../ui/FormField';
+import { Panel, PanelHeader } from '../../ui/Panel';
 import { Button } from '../../ui/Button';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as api from '../../../lib/api';
@@ -483,49 +486,22 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
     return (
         <div className="paint-panel">
             <div className="paint-workspace">
-            <aside className="paint-settings">
-                <div className="paint-settings__heading"><strong>Recolor</strong><span>Choose a look, then select emitters</span></div>
+            <Panel className="paint-settings">
+                <PanelHeader className="paint-settings__heading"><strong>Recolor</strong><span>Choose a look, then select emitters</span></PanelHeader>
             <PaletteControls mode={mode} onMode={setMode} palette={palette} onPalette={setPalette} shift={shift} onShift={setShift} />
             {mode === 'shift-hue' && <PaletteBar hueTarget={hueTarget} onHueTargetChange={setHueTarget} />}
 
                 <section className="paint-settings__section"><h3>Color channels</h3>
                 <div className="paint-toolbar__group paint-toolbar__group--targets">
                     {SLOTS.map((slot) => (
-                        <label
-                            key={slot.id}
-                            className={`paint-toolbar__target${
-                                targets.has(slot.id) ? ' is-on' : ''
-                            }`}
-                            title={`Recolor ${slot.title}`}
-                        >
-                            <input
-                                type="checkbox"
-                                checked={targets.has(slot.id)}
-                                onChange={() => toggleTarget(slot.id)}
-                            />
-                            {slot.title}
-                        </label>
+                        <Checkbox key={slot.id} label={slot.title} title={`Recolor ${slot.title}`} checked={targets.has(slot.id)} onChange={() => toggleTarget(slot.id)} />
                     ))}
                 </div>
                 </section>
                 <section className="paint-settings__section"><h3>Preserve</h3>
 
-                <label className="paint-search__opt" title="Skip pure black and pure white">
-                    <input
-                        type="checkbox"
-                        checked={ignoreBlackWhite}
-                        onChange={(e) => setIgnoreBlackWhite(e.target.checked)}
-                    />
-                    Ignore B/W
-                </label>
-                <label className="paint-search__opt" title="Keep each color's existing alpha">
-                    <input
-                        type="checkbox"
-                        checked={preserveAlpha}
-                        onChange={(e) => setPreserveAlpha(e.target.checked)}
-                    />
-                    Keep alpha
-                </label>
+                <Checkbox label="Ignore black / white" title="Skip pure black and pure white" checked={ignoreBlackWhite} onChange={e => setIgnoreBlackWhite(e.target.checked)} />
+                <Checkbox label="Keep alpha" checked={preserveAlpha} onChange={e => setPreserveAlpha(e.target.checked)} />
                 </section>
                 <details className="paint-settings__section"><summary>Select by blend mode</summary>
                 <div className="paint-toolbar__group">
@@ -550,13 +526,12 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
                 </div>
 
                 </details>
-            </aside>
+            </Panel>
             <div className="paint-content">
             <div className="paint-search">
                 {/* One tri-state box, like Quartz — All/None as two buttons was
                     twice the chrome for the same decision. */}
-                <input
-                    type="checkbox"
+                <Checkbox
                     className="paint-search__all"
                     checked={allSelected}
                     ref={(el) => {
@@ -566,9 +541,8 @@ export const PaintPanel: React.FC<PaintPanelProps> = ({ binPath, onSaved, onClos
                     title={allSelected || someSelected ? 'Deselect all' : 'Select all emitters'}
                     aria-label="Select all emitters"
                 />
-                <input
-                    type="text"
-                    className="dl-input paint-search__field"
+                <SearchInput
+                    className="paint-search__field"
                     placeholder="Filter systems and emitters…"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}

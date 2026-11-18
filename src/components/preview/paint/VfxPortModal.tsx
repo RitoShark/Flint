@@ -1,3 +1,4 @@
+import { Checkbox } from '../../ui/Checkbox';
 import { useEffect, useRef, useState } from 'react';
 import { Modal, ModalBody, ModalFooter, ModalHeader } from '../../ui/Modal';
 import { Button } from '../../ui/Button';
@@ -27,10 +28,8 @@ export function VfxPortModal({ target, onClose, onImported }: { target: string; 
             <p>{source}</p>
             {error && <p role="alert">{error}</p>}
             {model && !model.systems.length && <p>This BIN has no VFX systems.</p>}
-            {model?.systems.map(system => <label className="voice-editor__field" key={system.key}>
-                <span><strong>{system.name}</strong><small>{system.emitterKeys.length} emitters</small></span>
-                <input type="checkbox" checked={selected.has(system.key)} disabled={busy} onChange={e => setSelected(old => { const next = new Set(old); if (e.target.checked) next.add(system.key); else next.delete(system.key); return next; })} />
-            </label>)}
+            {model?.systems.map(system => <Checkbox key={system.key} label={system.name} description={`${system.emitterKeys.length} emitters`}
+                checked={selected.has(system.key)} disabled={busy} onChange={e => setSelected(old => { const next = new Set(old); if (e.target.checked) next.add(system.key); else next.delete(system.key); return next; })} />)}
         </div></ModalBody>
         <ModalFooter><Button variant="ghost" disabled={busy} onClick={onClose}>Cancel</Button>
             <Button variant="primary" disabled={busy || !selected.size} onClick={async () => {
