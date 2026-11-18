@@ -455,10 +455,17 @@ pub fn current() -> Option<Arc<Schema>> {
 pub(crate) fn adapt_value(value: &mut BinValue, expected: &str) -> Result<(), String> {
     let got = declared_type(value);
     if got == expected { return Ok(()); }
-    if let BinValue::String(path) = value {
-        if expected == "file" {
-            *value = BinValue::File(ritoshark::hash::xxh64(path));
-            return Ok(());
+    if let BinValue::String(text) = value {
+        match expected {
+            "file" => {
+                *value = BinValue::File(ritoshark::hash::xxh64(text));
+                return Ok(());
+            }
+            "hash" => {
+                *value = BinValue::Hash(ritoshark::hash::fnv1a(text));
+                return Ok(());
+            }
+            _ => {}
         }
     }
     let number = match value {
@@ -486,6 +493,7 @@ pub(crate) fn adapt_value(value: &mut BinValue, expected: &str) -> Result<(), St
             // Element declarations with different payloads require explicit conversion.
             let target = match items[0] {
                 "file" => BinType::File,
+                "hash" => BinType::Hash,
                 name if name == format!("{item:?}").to_ascii_lowercase() => *item,
                 _ => return Err(format!("Cannot safely convert `{got}` to `{expected}`")),
             };

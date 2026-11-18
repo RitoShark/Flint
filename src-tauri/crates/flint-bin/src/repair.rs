@@ -362,7 +362,9 @@ mod tests {
                 "0xb":{"value_type":"File"},
                 "0xc":{"value_type":"Option","container":{"value_type":"File"}},
                 "0xd":{"value_type":"Map","map":{"key_type":"File","value_type":"String"}},
-                "0xe":{"value_type":"List2","container":{"value_type":"U8"}}
+                "0xe":{"value_type":"List2","container":{"value_type":"U8"}},
+                "0xf":{"value_type":"Hash"},
+                "0x10":{"value_type":"List","container":{"value_type":"Hash"}}
             }}
         }}"#,
         )
@@ -401,6 +403,36 @@ mod tests {
         assert_eq!(
             repair(&mut bin, &schema(), &HashMapper::new(), RepairKind::Types).changed,
             0
+        );
+    }
+
+    #[test]
+    fn hashes_strings_when_metadata_expects_hash() {
+        let mut bin = bin(
+            1,
+            vec![
+                (15, BinValue::String("Material_A".into())),
+                (
+                    16,
+                    BinValue::List {
+                        is_list2: false,
+                        item: BinType::String,
+                        items: vec![BinValue::String("Material_B".into())],
+                    },
+                ),
+            ],
+        );
+        let report = repair(&mut bin, &schema(), &HashMapper::new(), RepairKind::Types);
+        assert_eq!(report.changed, 2);
+        assert!(report.blocked.is_empty());
+        assert_eq!(bin.entries[0].fields[&15], BinValue::Hash(fnv1a("Material_A")));
+        assert_eq!(
+            bin.entries[0].fields[&16],
+            BinValue::List {
+                is_list2: false,
+                item: BinType::Hash,
+                items: vec![BinValue::Hash(fnv1a("Material_B"))],
+            }
         );
     }
 
