@@ -54,7 +54,7 @@ pub fn read_bin(data: &[u8]) -> Result<Bin> {
     if data.len() >= 4 {
         let magic = &data[0..4];
         if magic != b"PROP" && magic != b"PTCH" {
-            tracing::error!(
+            tracing::debug!(
                 "Invalid BIN magic bytes: {:02x?} (expected PROP or PTCH)",
                 magic
             );

@@ -101,6 +101,9 @@ fn file_kind(path: &str) -> Option<&'static str> {
 fn decode(bytes: &[u8], kind: &str) -> Result<String, String> {
     match kind {
         "bin" => {
+            if !matches!(bytes.get(..4), Some(b"PROP" | b"PTCH")) {
+                return Ok(String::new());
+            }
             let tree = flint_core::bin::read_bin(bytes).map_err(|e| e.to_string())?;
             flint_core::bin::tree_to_text_cached(&tree).map_err(|e| e.to_string())
         }

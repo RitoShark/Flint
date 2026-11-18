@@ -251,7 +251,7 @@ enum NumFmt { I32, F32, U8, I16, U16 }
 fn read_new(r: &mut BinReader) -> io::Result<Vec<HashEntry>> {
     let strings_length = r.read_u16_le()? as usize;
     let mut flags = r.read_u16_le()?;
-    if flags == 0 {
+    if flags == 0 && (r.cursor.position() as usize) < r.cursor.get_ref().len() {
         flags = r.read_u16_le()?;
     }
 
@@ -623,4 +623,14 @@ pub fn parse_troybin(data: &[u8]) -> Result<FixedTroybin, String> {
 pub fn convert_troybin(data: &[u8]) -> Result<String, String> {
     let fixed = parse_troybin(data)?;
     Ok(write_ini(fixed))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_v2_troybin_converts_to_empty_text() {
+        assert_eq!(convert_troybin(&[2, 0, 0, 0, 0]).unwrap(), "");
+    }
 }
