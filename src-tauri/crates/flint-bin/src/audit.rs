@@ -319,6 +319,49 @@ fn walk_files(dir: &Path) -> Vec<(String, PathBuf)> {
         .collect()
 }
 
+fn inherited_base_hashes(dir: &Path) -> HashSet<u64> {
+    let Some(wad) = dir.file_name().and_then(|name| name.to_str()) else {
+        return HashSet::new();
+    };
+    if !wad.to_ascii_lowercase().ends_with(".wad.client") {
+        return HashSet::new();
+    }
+    let Some(layer) = dir.parent() else {
+        return HashSet::new();
+    };
+    if layer
+        .file_name()
+        .is_some_and(|name| name.eq_ignore_ascii_case("base"))
+    {
+        return HashSet::new();
+    }
+    let Some(content) = layer.parent() else {
+        return HashSet::new();
+    };
+    if !content
+        .file_name()
+        .is_some_and(|name| name.eq_ignore_ascii_case("content"))
+        || !content
+            .parent()
+            .is_some_and(|project| project.join("mod.config.json").is_file())
+    {
+        return HashSet::new();
+    }
+    let Ok(entries) = std::fs::read_dir(content.join("base")) else {
+        return HashSet::new();
+    };
+    let Some(base) = entries
+        .filter_map(Result::ok)
+        .find(|entry| entry.file_name().eq_ignore_ascii_case(wad) && entry.path().is_dir())
+    else {
+        return HashSet::new();
+    };
+    walk_files(&base.path())
+        .iter()
+        .map(|(rel, _)| unified_hash(rel))
+        .collect()
+}
+
 fn check_texture_file(rel: &str, disk: &Path) -> std::io::Result<Vec<CheckIssue>> {
     let file = std::fs::File::open(disk)?;
     check_texture_reader(rel, file)
@@ -361,10 +404,11 @@ pub fn check_one_file(dir: &Path, rel: &str) -> Result<Vec<CheckIssue>, String> 
         return Ok(Vec::new());
     };
 
-    let present: HashSet<u64> = walk_files(dir)
+    let mut present: HashSet<u64> = walk_files(dir)
         .iter()
         .map(|(rel, _)| unified_hash(rel))
         .collect();
+    present.extend(inherited_base_hashes(dir));
 
     let bin_names = flint_hash::hash::bin_dict::get_cached_bin_hashes().read();
     let (mut issues, mentions, tally) = scan_bin(&bin, &rel, &bin_names, &present);
@@ -427,7 +471,8 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
     for (idx, (rel, _)) in files.iter().enumerate() {
         by_hash.entry(unified_hash(rel)).or_default().push(idx);
     }
-    let present: HashSet<u64> = by_hash.keys().copied().collect();
+    let mut present: HashSet<u64> = by_hash.keys().copied().collect();
+    present.extend(inherited_base_hashes(dir));
 
     enum FileScan {
         Skip,
@@ -506,7 +551,9 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
         match by_hash.get(&unified_hash(mention)) {
             Some(indices) => referenced.extend(indices.iter().copied()),
             None => {
-                missing.insert(mention.clone());
+                if !present.contains(&unified_hash(mention)) {
+                    missing.insert(mention.clone());
+                }
             }
         }
     }
@@ -518,7 +565,9 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
         match by_hash.get(hash) {
             Some(indices) => referenced.extend(indices.iter().copied()),
             None => {
-                missing_hashes.insert(*hash);
+                if !present.contains(hash) {
+                    missing_hashes.insert(*hash);
+                }
             }
         }
     }
@@ -598,6 +647,123 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn layer_audits_resolve_base_references_without_using_sibling_layers() {
+        use ritoshark::bin::BinEntry;
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(temp.path().join("mod.config.json"), "{}").unwrap();
+        let base = temp.path().join("content/base/Kayn.wad.client");
+        let layer = temp.path().join("content/red/kayn.wad.client");
+        let sibling = temp.path().join("content/blue/kayn.wad.client");
+        let other_wad = temp.path().join("content/base/other.wad.client");
+        for dir in [&base, &layer, &sibling, &other_wad] {
+            std::fs::create_dir_all(dir.join("assets")).unwrap();
+        }
+        for (dir, path) in [
+            (&base, "assets/inherited.tex"),
+            (&base, "0000000000000042.tex"),
+            (&base, "assets/override.tex"),
+            (&layer, "assets/override.tex"),
+            (&sibling, "assets/sibling.tex"),
+            (&other_wad, "assets/other.tex"),
+        ] {
+            std::fs::write(dir.join(path), b"fixture").unwrap();
+        }
+        let mut bin = Bin::new();
+        bin.entries.push(BinEntry {
+            path_hash: 1,
+            class_hash: 2,
+            fields: [
+                (1, BinValue::String("ASSETS/Inherited.tex".into())),
+                (2, BinValue::File(0x42)),
+                (3, BinValue::String("assets/override.tex".into())),
+                (4, BinValue::String("assets/sibling.tex".into())),
+                (5, BinValue::String("assets/missing.tex".into())),
+                (6, BinValue::String("assets/other.tex".into())),
+            ]
+            .into_iter()
+            .collect(),
+        });
+        std::fs::write(
+            layer.join("skin.bin"),
+            crate::codec::write_bin(&bin).unwrap(),
+        )
+        .unwrap();
+        let expected = vec![
+            "assets/missing.tex".to_string(),
+            "assets/other.tex".to_string(),
+            "assets/sibling.tex".to_string(),
+        ];
+        let folder = audit_wad_folder(&layer).unwrap();
+        assert_eq!(folder.missing, expected);
+        assert_eq!(folder.files_scanned, 2);
+        assert!(folder.bloat.is_empty());
+        for issues in [
+            folder.issues,
+            check_one_file(&layer, "skin.bin").unwrap(),
+            check_file_path(&layer.join("skin.bin")).unwrap(),
+        ] {
+            assert_eq!(
+                issues
+                    .iter()
+                    .find(|issue| issue.code == "bin.missing-ref")
+                    .unwrap()
+                    .paths,
+                expected
+            );
+        }
+        std::fs::remove_file(base.join("assets/inherited.tex")).unwrap();
+        assert!(check_one_file(&layer, "skin.bin")
+            .unwrap()
+            .iter()
+            .any(|issue| issue.paths.contains(&"assets/inherited.tex".to_string())));
+        assert_eq!(
+            std::fs::read(layer.join("assets/override.tex")).unwrap(),
+            b"fixture"
+        );
+        std::fs::remove_file(temp.path().join("mod.config.json")).unwrap();
+        assert!(audit_wad_folder(&layer)
+            .unwrap()
+            .missing
+            .contains(&"0x0000000000000042".to_string()));
+    }
+
+    #[test]
+    #[ignore]
+    fn inspect_real_layer_missing_references() {
+        let project = std::env::var("FLINT_AUDIT_PROJECT").expect("fixture project path");
+        let content = Path::new(&project).join("content");
+        for layer in std::fs::read_dir(&content).unwrap().filter_map(Result::ok) {
+            if layer.file_name() == "base" || !layer.path().is_dir() {
+                continue;
+            }
+            for wad in std::fs::read_dir(layer.path())
+                .unwrap()
+                .filter_map(Result::ok)
+            {
+                if !wad.path().is_dir()
+                    || !wad.file_name().to_string_lossy().ends_with(".wad.client")
+                {
+                    continue;
+                }
+                let inherited = inherited_base_hashes(&wad.path());
+                assert!(!inherited.is_empty());
+                let report = audit_wad_folder(&wad.path()).unwrap();
+                println!(
+                    "{} / {}: {} inherited hashes, {} remaining missing references",
+                    layer.file_name().to_string_lossy(),
+                    wad.file_name().to_string_lossy(),
+                    inherited.len(),
+                    report.missing.len()
+                );
+                println!("Remaining: {:?}", report.missing);
+                for missing in &report.missing {
+                    assert!(!inherited.contains(&unified_hash(missing)));
+                }
+            }
+        }
+    }
 
     #[test]
     fn missing_ref_paths_include_references_beyond_the_summary() {
