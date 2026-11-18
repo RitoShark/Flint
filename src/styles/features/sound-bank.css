@@ -13,3 +13,17 @@
 .voice-editor__field input { min-width: 0; }
 .sound-bank { container-type: inline-size; }
 @container (max-width: 620px) { .sound-bank__inspector { flex-basis: 160px; padding: 12px; } }
+
+.sound-bank__workspace[hidden] { display: none; }
+.voice-editor-inline { display: flex; flex-direction: column; flex: 1; min-height: 0; overflow: hidden; }
+.voice-editor-inline .modal__body { flex: 1; overflow: auto; padding: 10px 14px; }
+.voice-editor-inline .modal__footer { flex-shrink: 0; padding: 8px 14px; }
+.voice-editor-empty { padding: 20px; align-items: flex-start; gap: 10px; }
+.voice-editor { gap: 4px; }
+.voice-editor__field { min-height: 34px; padding: 3px 8px; gap: 12px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; }
+.voice-editor__field span { display: flex; flex-direction: row; align-items: center; gap: 10px; overflow: hidden; }
+.voice-editor__field strong { flex-shrink: 0; font-size: 12px; }
+.voice-editor__field small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 10px; }
+.voice-editor__field input:not([type=checkbox]) { height: 27px; padding: 3px 7px; font-size: 12px; }
+
+.voice-editor-inline[hidden] { display: none; }

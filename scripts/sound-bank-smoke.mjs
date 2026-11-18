@@ -7,12 +7,13 @@ import assert from 'node:assert/strict';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const bundle = await build({
     plugins: [{ name: 'fixture-hook', setup(build) {
+        build.onLoad({ filter: /[\\/]lib[\\/]api[\\/]dialog\.ts$/ }, () => ({ loader: 'ts', contents: "export async function open() { return 'fixture/voice.bin'; } export async function save() { return null; }" }));
         build.onLoad({ filter: /[\\/]lib[\\/]api[\\/]core\.ts$/ }, () => ({ loader: 'ts', contents: `
             export class FlintError extends Error {}
             export const utf8Decoder = new TextDecoder();
             export async function invokeRaw() { return []; }
             export async function invokeCommand(command, args) {
-                if (command === 'parse_audio_bank') return { format: 'bnk', entry_count: 2, version: 134, has_hirc: true, entries: [{ id: 1001, size: 42000 }, { id: 1002, size: 28000 }] };
+                if (command === 'parse_audio_bank') return { format: 'bnk', entry_count: 2, version: 134, has_hirc: false, entries: [{ id: 1001, size: 42000 }, { id: 1002, size: 28000 }] };
                 if (command === 'read_voice_document') return { version: 'fixture', fields: [{ id: 0, label: 'Attack / ContextualActionPlayAudio / EventName', kind: 'string', value: 'Play_Evelynn_Attack' }, { id: 1, label: 'Attack / Chance', kind: 'float', value: 0.5 }] };
                 if (command === 'save_voice_document') { window.voiceSave = args; return { version: 'saved', fields: [] }; }
                 return null;
@@ -28,17 +29,12 @@ const bundle = await build({
     loader: { '.woff2': 'dataurl', '.woff': 'dataurl', '.ttf': 'dataurl', '.png': 'dataurl', '.svg': 'dataurl' },
     external: ['/fonts/*', '/images/*'],
     stdin: { resolveDir: root, loader: 'tsx', contents: `
-        import React, { useState } from 'react';
+        import React from 'react';
         import { createRoot } from 'react-dom/client';
         import { BnkPreview } from './src/components/preview/BnkPreview';
-        import { VoiceLineEditor } from './src/components/preview/VoiceLineEditor';
         import './src/styles/index.css';
         function App() {
-            const [voice, setVoice] = useState(false);
-            return <div style={{ height: '100vh' }}><button onClick={() => setVoice(true)}>Test voice editor</button>
-                <BnkPreview filePath="fixture/evelynn_audio.bnk" />
-                {voice && <VoiceLineEditor path="fixture/voice.bin" onClose={() => setVoice(false)} onSaved={() => {}} />}
-            </div>;
+            return <div style={{ height: '100vh' }}><BnkPreview filePath="fixture/evelynn_audio.bnk" /></div>;
         }
         createRoot(document.getElementById('root')).render(<App />);
     ` },
@@ -61,8 +57,14 @@ try {
     await page.getByRole('heading', { name: 'WEM 1001', exact: true }).waitFor();
     await page.getByRole('button', { name: 'Replace audio...', exact: true }).waitFor();
     await page.screenshot({ path: '../.tmp/flint-sound-bank-workflows.png' });
-    await page.getByRole('button', { name: 'Test voice editor' }).click();
+    await page.getByRole('button', { name: 'Voice rules', exact: true }).click();
+    await page.getByRole('button', { name: 'Choose voice BIN...' }).click();
     await page.getByLabel('Attack / ContextualActionPlayAudio / EventName').fill('Play_Evelynn_Custom');
+    assert.ok(await page.locator('.voice-editor__field').first().evaluate(el => el.getBoundingClientRect().height) <= 40);
+    await page.getByRole('button', { name: 'Media', exact: true }).click();
+    await page.getByRole('button', { name: 'Voice rules', exact: true }).click();
+    assert.equal(await page.getByLabel('Attack / ContextualActionPlayAudio / EventName').inputValue(), 'Play_Evelynn_Custom');
+    await page.screenshot({ path: '../.tmp/flint-compact-voice-rules.png' });
     await page.getByRole('button', { name: 'Save voice rules', exact: true }).click();
     await page.getByText('No ContextualActionData entries in this BIN. Open the skin\'s voice-rules BIN.').waitFor();
     assert.deepEqual(await page.evaluate(() => window.voiceSave.edits), [{ id: 0, value: 'Play_Evelynn_Custom' }]);

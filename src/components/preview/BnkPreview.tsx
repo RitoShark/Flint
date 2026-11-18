@@ -23,6 +23,8 @@ import { panelStyles } from './bnk/styles';
 
 export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
     const [voiceOpen, setVoiceOpen] = useState(false);
+    const [voicePath, setVoicePath] = useState<string | null>(null);
+    useEffect(() => { setVoicePath(null); }, [filePath]);
     const [info, setInfo] = useState<AudioBankInfo | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -112,6 +114,7 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
     useEffect(() => {
         let cancelled = false;
         setLoading(true);
+        setVoiceOpen(false);
         setError(null);
         setInfo(null);
         setSelectedId(null);
@@ -165,6 +168,9 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
             }
         }
         setHircSource(resolvedHirc);
+
+        const voiceCandidate = findBinCandidate(relBank, fileTree);
+        if (voiceCandidate) setVoicePath(`${normProject}/${voiceCandidate}`);
 
         if (resolvedHirc.kind === 'missing') {
             setBinLink({ kind: 'none' });
@@ -226,8 +232,9 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
             directory: false,
         });
         if (!selected) return;
-        await linkBinFile(selected as string, 'manual');
-    }, [linkBinFile]);
+        setVoicePath(selected as string);
+        if (!voiceOpen) await linkBinFile(selected as string, 'manual');
+    }, [linkBinFile, voiceOpen]);
 
     const handlePickEvents = useCallback(async () => {
         const selected = await open({
@@ -735,19 +742,20 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                 <div style={panelStyles.controls}>
                     <div style={panelStyles.modeGroup}>
                         <Button
-                            size="sm" active={viewMode === 'flat'}
-                            onClick={() => setViewMode('flat')}
+                            size="sm" active={!voiceOpen && viewMode === 'flat'}
+                            onClick={() => { setVoiceOpen(false); setViewMode('flat'); }}
                         >
                             Media
                         </Button>
                         <Button
-                            size="sm" active={viewMode === 'events'}
-                            onClick={() => setViewMode('events')}
+                            size="sm" active={!voiceOpen && viewMode === 'events'}
+                            onClick={() => { setVoiceOpen(false); setViewMode('events'); }}
                             disabled={!canUseEventView}
                             title={canUseEventView ? 'Group by event name' : 'Link a BIN file to enable events view'}
                         >
                             Events
                         </Button>
+                        <Button size="sm" active={voiceOpen} onClick={() => setVoiceOpen(v => !v)}>Voice rules</Button>
                     </div>
 
                     <input
@@ -780,7 +788,7 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                 </div>
             </div>
 
-            <div style={panelStyles.binBar}>
+            <div style={{ ...panelStyles.binBar, ...(voiceOpen ? { display: 'none' } : {}) }}>
                 <div style={panelStyles.binStatus}>
                     <span style={panelStyles.sourceChip}>
                         <span style={panelStyles.sourceLabel}>Events:</span>
@@ -843,7 +851,7 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                 </div>
             </div>
 
-            <div style={panelStyles.editBar}>
+            <div style={{ ...panelStyles.editBar, ...(voiceOpen ? { display: 'none' } : {}) }}>
                 <div style={panelStyles.subtle}>
                     {isDirty
                         ? `${undoDepth} change${undoDepth === 1 ? '' : 's'} pending`
@@ -878,12 +886,12 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
                 </div>
             )}
 
-            <div className="sound-bank__workspace">
+            <div className="sound-bank__workspace" hidden={voiceOpen}>
             <aside className="sound-bank__inspector">
                 <span className="sound-bank__eyebrow">SOUND BANK</span>
                 <h3>{filePath.split(/[\\/]/).pop()}</h3>
                 <p>{info.entries.length} media files / {events.length} events</p>
-                <Button size="sm" disabled={binLink.kind !== 'linked'} onClick={() => setVoiceOpen(true)}>Edit voice rules</Button>
+
                 <hr />
                 <h4>{selectedId === null ? 'Select a sound' : `WEM ${selectedId}`}</h4>
                 {selectedId !== null && (() => {
@@ -944,7 +952,11 @@ export const BnkPreview: React.FC<BnkPreviewProps> = ({ filePath }) => {
             </div>
 
             </div>
-            {voiceOpen && binLink.kind === 'linked' && <VoiceLineEditor path={binLink.path} onClose={() => setVoiceOpen(false)} onSaved={() => { useAppMetadataStore.getState().incrementFileVersion(binLink.path); setVoiceOpen(false); }} />}
+            {voiceOpen && voicePath && <div style={panelStyles.binBar}><span title={voicePath}>Voice BIN: {voicePath.split(/[\\/]/).pop()}</span><Button size="sm" onClick={handlePickBin}>Change voice BIN...</Button></div>}
+            <div className="voice-editor-inline" hidden={!voiceOpen}>
+                {voicePath ? <VoiceLineEditor key={voicePath} embedded path={voicePath} onClose={() => setVoiceOpen(false)} onSaved={() => { useAppMetadataStore.getState().incrementFileVersion(voicePath); if (binLink.kind === 'linked') void linkBinFile(binLink.path, binLink.source); }} /> :
+                    <div className="voice-editor-empty"><p>Link the skin's voice BIN to edit its rules.</p><Button size="sm" onClick={handlePickBin}>Choose voice BIN...</Button></div>}
+            </div>
             <audio
                 ref={audioRef}
                 onEnded={() => setPlayingId(null)}
