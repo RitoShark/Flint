@@ -172,6 +172,107 @@ pub fn read_universe_lines(anchor: &Path, universe: HashUniverse) -> Vec<String>
     read_universe_set(&file).into_iter().collect()
 }
 
+fn is_hex(s: &str, len: usize) -> bool {
+    s.len() == len && s.bytes().all(|b| b.is_ascii_hexdigit())
+}
+
+pub fn read_legacy_files_txt_into(dir: &Path, trailer: &mut crate::Trailer) {
+    let Ok(content) = fs::read_to_string(dir.join("files.txt")) else {
+        return;
+    };
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        match line.split_once(char::is_whitespace) {
+            Some((hex, name)) if is_hex(hex, 8) => {
+                if let Ok(h) = u32::from_str_radix(hex, 16) {
+                    trailer.names.entry(h).or_insert_with(|| name.trim().to_string());
+                }
+            }
+            Some((hex, name)) if is_hex(hex, 16) => {
+                if let Ok(h) = u64::from_str_radix(hex, 16) {
+                    trailer.files.entry(h).or_insert_with(|| name.trim().to_string());
+                }
+            }
+            _ => {
+                trailer
+                    .files
+                    .entry(ritoshark::hash::xxh64(line))
+                    .or_insert_with(|| line.to_string());
+            }
+        }
+    }
+}
+
+pub fn migrate_project_files_txt(project_root: &Path) -> usize {
+    let mut candidates = vec![project_root.join("files.txt")];
+    let content_dir = project_root.join("content");
+    if let Ok(layers) = fs::read_dir(&content_dir) {
+        for layer in layers.flatten() {
+            let layer_path = layer.path();
+            if !layer_path.is_dir() {
+                continue;
+            }
+            candidates.push(layer_path.join("files.txt"));
+            if let Ok(wads) = fs::read_dir(&layer_path) {
+                for wad in wads.flatten() {
+                    let wad_path = wad.path();
+                    if wad_path.is_dir() {
+                        candidates.push(wad_path.join("files.txt"));
+                    }
+                }
+            }
+        }
+    }
+
+    let mut game = Vec::new();
+    let mut entries = Vec::new();
+    let mut migrated_files = Vec::new();
+
+    for file in candidates {
+        let Ok(text) = fs::read_to_string(&file) else {
+            continue;
+        };
+        for line in text.lines() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            match line.split_once(char::is_whitespace) {
+                Some((hex, name)) if is_hex(hex, 8) => {
+                    let name = name.trim();
+                    if !name.is_empty() {
+                        entries.push(name.to_string());
+                    }
+                }
+                Some((hex, name)) if is_hex(hex, 16) => {
+                    let name = name.trim();
+                    if !name.is_empty() {
+                        game.push(name.to_string());
+                    }
+                }
+                _ => game.push(line.to_string()),
+            }
+        }
+        migrated_files.push(file);
+    }
+
+    if migrated_files.is_empty() {
+        return 0;
+    }
+
+    merge_into_universe(project_root, HashUniverse::Game, &game);
+    merge_into_universe(project_root, HashUniverse::BinEntries, &entries);
+
+    for file in &migrated_files {
+        let _ = fs::remove_file(file);
+    }
+
+    migrated_files.len()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -210,6 +311,33 @@ mod tests {
         assert_eq!(
             trailer.names.get(&expected_entry).map(String::as_str),
             Some("Characters/Talon/Skins/Skin38")
+        );
+    }
+
+    #[test]
+    fn migrates_legacy_files_txt_and_removes_source() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project = tmp.path();
+        fs::write(project.join("mod.config.json"), "{}").unwrap();
+        let wad = project.join("content").join("base").join("talon.wad.client");
+        fs::create_dir_all(&wad).unwrap();
+        let legacy = wad.join("files.txt");
+        fs::write(
+            &legacy,
+            "d29c3cd1df8e6543 assets/sirdexal/test/talon_w.tex\n12345678 Characters/Talon/Skins/Skin38\n",
+        )
+        .unwrap();
+
+        let count = migrate_project_files_txt(project);
+        assert_eq!(count, 1);
+        assert!(!legacy.exists());
+        assert_eq!(
+            read_universe_lines(project, HashUniverse::Game),
+            vec!["assets/sirdexal/test/talon_w.tex".to_string()]
+        );
+        assert_eq!(
+            read_universe_lines(project, HashUniverse::BinEntries),
+            vec!["Characters/Talon/Skins/Skin38".to_string()]
         );
     }
 }

@@ -426,6 +426,7 @@ pub fn check_one_file(dir: &Path, rel: &str) -> Result<Vec<CheckIssue>, String> 
 
     let mut local_trailer = crate::Trailer::new();
     crate::hash_store::read_dot_hashes_into(dir, &mut local_trailer);
+    crate::hash_store::read_legacy_files_txt_into(dir, &mut local_trailer);
     let local_files = local_trailer.files;
 
     let bin_names = flint_hash::hash::bin_dict::get_cached_bin_hashes().read();
@@ -505,6 +506,7 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
 
     let mut local_trailer = crate::Trailer::new();
     crate::hash_store::read_dot_hashes_into(dir, &mut local_trailer);
+    crate::hash_store::read_legacy_files_txt_into(dir, &mut local_trailer);
     let local_files = local_trailer.files;
 
     let bin_names = flint_hash::hash::bin_dict::get_cached_bin_hashes().read();

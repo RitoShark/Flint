@@ -554,6 +554,14 @@ pub async fn open_project(path: String) -> Result<Project, String> {
         let project_clone = project.clone();
         let parent = parent.to_path_buf();
         let _ = tokio::task::spawn_blocking(move || {
+            let migrated = flint_core::bin::hash_store::migrate_project_files_txt(&project_clone.project_path);
+            if migrated > 0 {
+                tracing::info!(
+                    "Migrated {} legacy files.txt into .hashes/ for {}",
+                    migrated,
+                    project_clone.project_path.display()
+                );
+            }
             flint_core::project::register_in_index(&parent, &project_clone)
         })
         .await;
