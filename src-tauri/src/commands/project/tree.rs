@@ -29,6 +29,10 @@ pub async fn list_project_files(project_path: String) -> Result<serde_json::Valu
     fn build_tree(root: &std::path::Path, base: &std::path::Path) -> Value {
         let entries: Vec<_> = WalkDir::new(root)
             .into_iter()
+            .filter_entry(|e| {
+                let name = e.file_name().to_string_lossy();
+                name != ".hashes" && name != ".flint"
+            })
             .filter_map(|e| e.ok())
             .skip(1)
             .filter(|e| !e.file_name().to_string_lossy().ends_with(".ritobin"))
