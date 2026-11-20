@@ -215,12 +215,21 @@ fn find_project_root(folder: &Path) -> Option<PathBuf> {
 
 fn load_local_hash_names(folder: &Path) -> HashMap<u64, String> {
     let mut map = HashMap::new();
-    if let Ok(content) = std::fs::read_to_string(folder.join("files.txt")) {
+    let files_txt = folder.join("files.txt");
+    if let Ok(content) = std::fs::read_to_string(&files_txt) {
         parse_hash_list_into(&content, &mut map);
+        tracing::info!(
+            "[live_pull] Loaded {} entries from {}",
+            map.len(),
+            files_txt.display()
+        );
+    } else {
+        tracing::info!("[live_pull] No files.txt at {}", files_txt.display());
     }
     if let Some(root) = find_project_root(folder) {
         let hashes_dir = root.join("hashes");
         if let Ok(entries) = std::fs::read_dir(&hashes_dir) {
+            let before = map.len();
             for entry in entries.flatten() {
                 let p = entry.path();
                 if p.is_file() {
@@ -229,6 +238,11 @@ fn load_local_hash_names(folder: &Path) -> HashMap<u64, String> {
                     }
                 }
             }
+            tracing::info!(
+                "[live_pull] Loaded {} additional entries from {}",
+                map.len() - before,
+                hashes_dir.display()
+            );
         }
     }
     map
@@ -407,6 +421,14 @@ fn find_live_assets_blocking(
         .map(|s| s.to_ascii_lowercase());
 
     let wads = collect_live_wads(&final_dir, &folder_name);
+    tracing::info!(
+        "[live_pull] Searching {} live WADs under {} for {} missing item(s) (folder={}, primary={})",
+        wads.len(),
+        final_dir.display(),
+        missing_paths.len(),
+        folder_name,
+        wads.iter().any(|(_, _, p)| *p)
+    );
     if wads.is_empty() {
         return Err(format!("No WAD files found under {}", final_dir.display()));
     }
@@ -427,8 +449,17 @@ fn find_live_assets_blocking(
             overlay.as_deref(),
             &resolver,
         ) {
+            tracing::info!(
+                "[live_pull] Query raw='{}' -> dest={:?} exact_hash={:016x} tails={:?} candidates={}",
+                q.original,
+                q.dest_path,
+                q.exact_hash,
+                q.tails,
+                q.candidate_hashes.len()
+            );
             queries.push(q);
         } else {
+            tracing::warn!("[live_pull] Skipped invalid query: '{}'", raw);
             unmatched_raw.push(raw);
         }
     }
@@ -595,8 +626,23 @@ fn find_live_assets_blocking(
     let mut unmatched = unmatched_raw;
     for (idx, q) in queries.into_iter().enumerate() {
         if let Some((_, m)) = best_matches.remove(&idx) {
+            tracing::info!(
+                "[live_pull] Matched '{}' -> '{}' in {} (chunk={}, live='{}', exact={})",
+                m.missing_path,
+                m.dest_path,
+                m.wad_name,
+                m.chunk_hash,
+                m.live_path,
+                m.exact
+            );
             matches.push(m);
         } else {
+            tracing::warn!(
+                "[live_pull] Unmatched '{}' (dest={:?}, exact_hash={:016x})",
+                q.original,
+                q.dest_path,
+                q.exact_hash
+            );
             unmatched.push(q.original);
         }
     }
