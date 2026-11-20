@@ -3,7 +3,7 @@ import { Checkbox } from '../ui/Checkbox';
 import { ChangeEvent, useState } from 'react';
 import { open } from '../../lib/api/dialog';
 import { Layer } from '../../lib/thumbnail/layers';
-import { DlIcon, DlSegmented, DlSlider } from '../ui/design-lab';
+import { DlIcon, DlSegmented, DlSelect, DlSlider } from '../ui/design-lab';
 
 export type LayerPatch = Partial<Layer>;
 
@@ -158,25 +158,11 @@ function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture }: { laye
         />
       </div>
       <div className="tb-grp">
-        <label className="tb-check">
-          <input
-            type="checkbox"
-            checked={!!layer.mirrored}
-            onChange={(e) => onChange({ mirrored: e.target.checked }, true)}
-          />
-          Mirror
-        </label>
+        <CheckRow label="Mirror" checked={!!layer.mirrored} onChange={(v) => onChange({ mirrored: v }, true)} />
         <div className="tb-hint">Faces the pose the other way — not the same as turning 180&deg;.</div>
       </div>
       <div className="tb-grp">
-        <label className="tb-check">
-          <input
-            type="checkbox"
-            checked={layer.clipToDisc !== false}
-            onChange={(e) => onChange({ clipToDisc: e.target.checked }, true)}
-          />
-          Clip to circle
-        </label>
+        <CheckRow label="Clip to circle" checked={layer.clipToDisc !== false} onChange={(v) => onChange({ clipToDisc: v }, true)} />
         {layer.clipToDisc !== false && (
           <>
             <DlSegmented
@@ -445,15 +431,14 @@ function EnvProps({ layer, onChange }: { layer: Extract<Layer, { type: 'env' }>;
     <>
       <div className="tb-grp">
         <label>Variation (chroma)</label>
-        <div className="dl-row" style={{ gap: 6 }}>
-          <select
-            className="dl-select"
-            style={{ flex: 1 }}
-            value={active?.name ?? ''}
-            onChange={(e) => onChange({ activeVariation: e.target.value } as Partial<Layer>, true)}
-          >
-            {layer.variations.map(v => <option key={v.name} value={v.name}>{v.name}</option>)}
-          </select>
+        <div className="dl-row" style={{ gap: 6, alignItems: 'center' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <DlSelect
+              value={active?.name ?? ''}
+              onChange={(v) => onChange({ activeVariation: v } as Partial<Layer>, true)}
+              options={layer.variations.map(v => ({ value: v.name, label: v.name }))}
+            />
+          </div>
           <Button variant="secondary" size="sm" onClick={addVariation}>+ New</Button>
         </div>
       </div>
@@ -505,7 +490,9 @@ export function PropertiesPanel({ layer, onChange, onBeginGesture, onCommitGestu
   return (
     <div className="tb-side-sec tb-side-sec--props">
       <div className="tb-pane-h">
-        {layer ? <><DlIcon name={TITLE_ICON[layer.type]} size={13} style={{ marginRight: 6 }} />{TITLES[layer.type]}</> : 'Properties'}
+        <span className="tb-pane-h__title">
+          {layer ? <><DlIcon name={TITLE_ICON[layer.type]} size={13} />{TITLES[layer.type]}</> : 'Properties'}
+        </span>
       </div>
       <div className="tb-prop tb-side-scroll">
         {!layer ? (
