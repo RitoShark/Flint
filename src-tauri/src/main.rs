@@ -174,7 +174,8 @@ fn main() {
             // Shader-preview module env: cache root + the shared hash dir.
             // No-op in stub builds.
             if let Ok(config_dir) = app.path().app_data_dir() {
-                flint_shaderforge::init_host_env(config_dir, Some(hash_dir.clone()));
+                let cache_dir = app.path().app_cache_dir().ok();
+                flint_shaderforge::init_host_env(config_dir, cache_dir, Some(hash_dir.clone()));
             }
 
             let hash_dir_str = hash_dir.to_string_lossy().into_owned();

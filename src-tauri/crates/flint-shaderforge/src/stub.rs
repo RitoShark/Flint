@@ -7,7 +7,11 @@ use std::collections::HashMap;
 
 const UNAVAILABLE: &str = "shader preview unavailable";
 
-pub fn init_host_env(_config_dir: std::path::PathBuf, _hash_dir: Option<std::path::PathBuf>) {}
+pub fn init_host_env(
+    _config_dir: std::path::PathBuf,
+    _cache_dir: Option<std::path::PathBuf>,
+    _hash_dir: Option<std::path::PathBuf>,
+) {}
 
 pub async fn translate_material_shader(
     _shader_cache_path: String,

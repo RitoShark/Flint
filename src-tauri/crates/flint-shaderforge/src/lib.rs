@@ -53,9 +53,14 @@ pub use commands::{
 };
 
 #[cfg(feature = "real")]
-pub fn init_host_env(config_dir: std::path::PathBuf, hash_dir: Option<std::path::PathBuf>) {
+pub fn init_host_env(
+    config_dir: std::path::PathBuf,
+    cache_dir: Option<std::path::PathBuf>,
+    hash_dir: Option<std::path::PathBuf>,
+) {
     host_env::set_host_env(host_env::HostEnv {
         config_dir: Some(config_dir),
+        cache_dir,
         hash_dir,
         league_install: None,
     });
