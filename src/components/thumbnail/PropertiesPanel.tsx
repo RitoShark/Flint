@@ -34,8 +34,27 @@ function TextProps({ layer, onChange, onBeginGesture, onCommitGesture }: { layer
       </div>
       <div className="tb-grp">
         <label>Font</label>
+        <DlSegmented
+          fill
+          aria-label="Font preset"
+          value={
+            layer.font.toLowerCase() === 'beaufort for lol'
+              ? 'Beaufort for LOL'
+              : layer.font.toLowerCase() === 'anton'
+                ? 'Anton'
+                : ''
+          }
+          onChange={(v) => {
+            if (v) onChange({ font: v }, true);
+          }}
+          options={[
+            { value: 'Beaufort for LOL', label: 'Beaufort' },
+            { value: 'Anton', label: 'Anton' },
+          ]}
+        />
         <input
           className="dl-input"
+          style={{ marginTop: 6 }}
           value={layer.font}
           onChange={(e: ChangeEvent<HTMLInputElement>) => onChange({ font: e.target.value }, false)}
           onBlur={(e) => onChange({ font: e.target.value }, true)}

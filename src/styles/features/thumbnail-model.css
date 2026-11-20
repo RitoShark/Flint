@@ -36,7 +36,7 @@
   z-index: 30;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   padding: 5px;
   background: color-mix(in oklab, var(--bg-secondary) 88%, transparent);
   backdrop-filter: blur(10px) saturate(140%);
@@ -48,6 +48,7 @@
 .tb-model-bar__btn {
   display: inline-flex;
   align-items: center;
+  gap: 6px;
   white-space: nowrap;
 }
 .tb-model-bar__btn .dl-icon {
