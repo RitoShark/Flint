@@ -20,6 +20,7 @@ export interface MeshDTO {
     indices: Uint16Array | Uint32Array;
     normals?: Float32Array;
     uvs: Float32Array;
+    colors?: Uint8Array | number[];
     bone_indices?: Uint8Array;
     bone_weights?: Float32Array;
     submeshes: SubmeshRange[];
@@ -81,15 +82,62 @@ export function buildSknMeshes(
             indices[i + 2] = skn.indices[iStart + i + 1] - vStart;
         }
 
-        // Computed from the rewound indices, so they point outward.
         const normals = new Float32Array(vCount * 3);
-        VertexData.ComputeNormals(positions, indices, normals);
+        const srcNormals = skn.normals;
+        let haveAuthored = !!srcNormals && srcNormals.length >= (vStart + vCount) * 3;
+        let degenerate = 0;
+        if (haveAuthored && srcNormals) {
+            for (let v = 0; v < vCount; v++) {
+                const o = v * 3;
+                const x = srcNormals[(vStart + v) * 3];
+                const y = srcNormals[(vStart + v) * 3 + 1];
+                const z = srcNormals[(vStart + v) * 3 + 2];
+                const len2 = x * x + y * y + z * z;
+                if (!Number.isFinite(len2) || len2 < 1e-12) {
+                    degenerate++;
+                    continue;
+                }
+                normals[o] = x;
+                normals[o + 1] = y;
+                normals[o + 2] = z;
+            }
+            haveAuthored = degenerate < vCount;
+        }
+        if (!haveAuthored) {
+            VertexData.ComputeNormals(positions, indices, normals);
+        } else if (degenerate > 0) {
+            const computed = new Float32Array(vCount * 3);
+            VertexData.ComputeNormals(positions, indices, computed);
+            for (let v = 0; v < vCount; v++) {
+                const o = v * 3;
+                if (normals[o] !== 0 || normals[o + 1] !== 0 || normals[o + 2] !== 0) continue;
+                const cx = computed[o];
+                const cy = computed[o + 1];
+                const cz = computed[o + 2];
+                const ok = Number.isFinite(cx + cy + cz) && cx * cx + cy * cy + cz * cz > 1e-12;
+                normals[o] = ok ? cx : 0;
+                normals[o + 1] = ok ? cy : 1;
+                normals[o + 2] = ok ? cz : 0;
+            }
+        }
 
         const vd = new VertexData();
         vd.positions = positions;
         vd.indices = indices;
         vd.normals = normals;
         vd.uvs = uvs;
+
+        const colors = new Float32Array(vCount * 4);
+        if (skn.colors && skn.colors.length >= (vStart + vCount) * 4) {
+            for (let i = 0; i < vCount * 4; i++) {
+                colors[i] = skn.colors[vStart * 4 + i] / 255;
+            }
+        } else {
+            for (let i = 0; i < vCount; i++) {
+                colors[i * 4 + 3] = 1;
+            }
+        }
+        vd.colors = colors;
 
         if (hasSkin && skn.bone_indices && skn.bone_weights) {
             const matrixIndices: number[] = new Array(vCount * 4);
@@ -115,8 +163,10 @@ export function buildSknMeshes(
         if (hasSkin) {
             mesh.skeleton = skeleton!;
             mesh.numBoneInfluencers = 4;
+            mesh.alwaysSelectAsActiveMesh = true;
         }
         mesh.sideOrientation = Mesh.DOUBLESIDE;
+        mesh.useVertexColors = false;
 
         let nanPos = 0;
         for (let i = 0; i < positions.length; i++) if (!Number.isFinite(positions[i])) nanPos++;
