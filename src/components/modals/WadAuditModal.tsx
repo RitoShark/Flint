@@ -382,13 +382,13 @@ export const WadAuditModal: React.FC = () => {
 
                 const res = await api.pullLiveAssets(folderPath, [
                     {
-                        missingPath: path,
+                        missingPath: match.destPath,
                         wadPath: match.wadPath,
                         chunkHash: match.chunkHash,
                     },
                 ]);
                 if (res.pulled > 0) {
-                    showToast('success', `Pulled ${path} from ${match.wadName}`);
+                    showToast('success', `Pulled ${match.destPath} from ${match.wadName}`);
                     setLiveMatches((prev) => {
                         const next = { ...prev };
                         delete next[path];
@@ -414,7 +414,7 @@ export const WadAuditModal: React.FC = () => {
             const res = await api.pullLiveAssets(
                 folderPath,
                 foundOnLive.map((m) => ({
-                    missingPath: m.missingPath,
+                    missingPath: m.destPath,
                     wadPath: m.wadPath,
                     chunkHash: m.chunkHash,
                 })),
@@ -473,7 +473,7 @@ export const WadAuditModal: React.FC = () => {
                 className={`wa-row wa-row--flat wa-row--${row.tone}${row.reveal ? ' wa-row--click' : ''}`}
                 title={
                     match
-                        ? `${row.path}\nFound in ${match.wadName}: ${match.livePath}`
+                        ? `${match.destPath !== row.path ? `${row.path} -> ${match.destPath}` : row.path}\nFound in ${match.wadName}: ${match.livePath}`
                         : row.reveal
                           ? `${row.path} — click to reveal in the file tree`
                           : row.path

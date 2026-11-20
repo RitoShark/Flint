@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use flint_core::hash::wad_chunk_hash;
 use flint_core::league::detect_league_installation;
-use flint_core::overlay::HashResolver;
+use flint_core::overlay::{HashResolver, ProjectHashOverlay};
 use flint_core::path_slash::to_slash;
 use flint_core::wad::adapter::{extract_chunk, WadHandle};
 use flint_core::wad::cache::WadCache;
@@ -14,12 +14,13 @@ use tauri::State;
 use walkdir::WalkDir;
 
 use crate::commands::platform::settings::get_settings;
-use crate::state::WadCacheState;
+use crate::state::{HashOverlayState, WadCacheState};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LiveAssetMatch {
     pub missing_path: String,
+    pub dest_path: String,
     pub wad_path: String,
     pub wad_name: String,
     pub chunk_hash: String,
@@ -166,6 +167,7 @@ fn extract_repath_tails(norm: &str) -> Vec<String> {
 
 struct MissingQuery {
     original: String,
+    dest_path: Option<String>,
     norm: String,
     exact_hash: u64,
     candidate_hashes: Vec<u64>,
@@ -174,9 +176,121 @@ struct MissingQuery {
     wants_vo: bool,
 }
 
-fn build_query(raw: &str, champion: Option<&str>) -> Option<MissingQuery> {
-    let norm = raw.replace('\\', "/").trim_start_matches('/').to_ascii_lowercase();
-    if norm.is_empty() || (norm.starts_with("0x") && !norm.contains('/')) {
+fn parse_hash_list_into(content: &str, out: &mut HashMap<u64, String>) {
+    for line in content.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if let Some((hex, name)) = line.split_once(char::is_whitespace) {
+            let clean_hex = hex.trim_start_matches("0x").trim_start_matches("0X");
+            if clean_hex.len() == 16 && clean_hex.chars().all(|c| c.is_ascii_hexdigit()) {
+                if let Ok(h) = u64::from_str_radix(clean_hex, 16) {
+                    let path = name.trim().replace('\\', "/").trim_start_matches('/').to_string();
+                    if !path.is_empty() {
+                        out.entry(h).or_insert(path);
+                    }
+                    continue;
+                }
+            }
+        }
+        let path = line.replace('\\', "/").trim_start_matches('/').to_string();
+        if !path.is_empty() {
+            out.entry(wad_chunk_hash(&path)).or_insert(path);
+        }
+    }
+}
+
+fn find_project_root(folder: &Path) -> Option<PathBuf> {
+    let mut cur = Some(folder);
+    for _ in 0..5 {
+        let dir = cur?;
+        if dir.join("mod.config.json").is_file() {
+            return Some(dir.to_path_buf());
+        }
+        cur = dir.parent();
+    }
+    None
+}
+
+fn load_local_hash_names(folder: &Path) -> HashMap<u64, String> {
+    let mut map = HashMap::new();
+    if let Ok(content) = std::fs::read_to_string(folder.join("files.txt")) {
+        parse_hash_list_into(&content, &mut map);
+    }
+    if let Some(root) = find_project_root(folder) {
+        let hashes_dir = root.join("hashes");
+        if let Ok(entries) = std::fs::read_dir(&hashes_dir) {
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_file() {
+                    if let Ok(content) = std::fs::read_to_string(&p) {
+                        parse_hash_list_into(&content, &mut map);
+                    }
+                }
+            }
+        }
+    }
+    map
+}
+
+fn parse_hex_u64(raw: &str) -> Option<u64> {
+    let trimmed = raw.trim();
+    let hex = trimmed
+        .strip_prefix("0x")
+        .or_else(|| trimmed.strip_prefix("0X"))?;
+    if hex.is_empty() || hex.len() > 16 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    u64::from_str_radix(hex, 16).ok()
+}
+
+fn build_query(
+    raw: &str,
+    champion: Option<&str>,
+    local_names: &HashMap<u64, String>,
+    overlay: Option<&ProjectHashOverlay>,
+    resolver: &HashResolver,
+) -> Option<MissingQuery> {
+    if let Some(hash) = parse_hex_u64(raw) {
+        let unhashed = local_names
+            .get(&hash)
+            .cloned()
+            .or_else(|| overlay.and_then(|o| o.wad_get(hash).map(str::to_string)))
+            .or_else(|| {
+                resolver
+                    .resolve_wad(&[hash])
+                    .into_iter()
+                    .next()
+                    .filter(|s| s.contains('/'))
+            });
+
+        if let Some(path) = unhashed {
+            let mut q = build_path_query(raw, &path, champion)?;
+            q.dest_path = Some(path.replace('\\', "/").trim_start_matches('/').to_string());
+            return Some(q);
+        }
+
+        return Some(MissingQuery {
+            original: raw.to_string(),
+            dest_path: None,
+            norm: String::new(),
+            exact_hash: hash,
+            candidate_hashes: Vec::new(),
+            tails: Vec::new(),
+            filename: String::new(),
+            wants_vo: false,
+        });
+    }
+
+    let mut q = build_path_query(raw, raw, champion)?;
+    q.dest_path = Some(raw.replace('\\', "/").trim_start_matches('/').to_string());
+    Some(q)
+}
+
+fn build_path_query(original: &str, path: &str, champion: Option<&str>) -> Option<MissingQuery> {
+    let norm = path.replace('\\', "/").trim_start_matches('/').to_ascii_lowercase();
+    if norm.is_empty() {
         return None;
     }
 
@@ -202,8 +316,8 @@ fn build_query(raw: &str, champion: Option<&str>) -> Option<MissingQuery> {
     let mut seen = HashSet::new();
     seen.insert(exact_hash);
     let mut candidate_hashes = Vec::new();
-    for path in candidate_paths {
-        let h = wad_chunk_hash(&path);
+    for cand in candidate_paths {
+        let h = wad_chunk_hash(&cand);
         if seen.insert(h) {
             candidate_hashes.push(h);
         }
@@ -212,7 +326,8 @@ fn build_query(raw: &str, champion: Option<&str>) -> Option<MissingQuery> {
     let wants_vo = norm.contains("/vo/") || norm.contains("/audio/vo/");
 
     Some(MissingQuery {
-        original: raw.to_string(),
+        original: original.to_string(),
+        dest_path: Some(path.replace('\\', "/").trim_start_matches('/').to_string()),
         norm,
         exact_hash,
         candidate_hashes,
@@ -276,6 +391,7 @@ fn find_live_assets_blocking(
     folder_path: &str,
     missing_paths: Vec<String>,
     cache: Arc<WadCache>,
+    overlay: Option<Arc<ProjectHashOverlay>>,
 ) -> Result<FindLiveAssetsResult, String> {
     let final_dir = resolve_league_final_dir()?;
     let folder = Path::new(folder_path);
@@ -295,20 +411,27 @@ fn find_live_assets_blocking(
         return Err(format!("No WAD files found under {}", final_dir.display()));
     }
 
+    let hash_dir = flint_core::hash::get_hash_dir()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let resolver = HashResolver::global(&hash_dir);
+    let local_names = load_local_hash_names(folder);
+
     let mut queries = Vec::new();
     let mut unmatched_raw = Vec::new();
     for raw in missing_paths {
-        if let Some(q) = build_query(&raw, champion.as_deref()) {
+        if let Some(q) = build_query(
+            &raw,
+            champion.as_deref(),
+            &local_names,
+            overlay.as_deref(),
+            &resolver,
+        ) {
             queries.push(q);
         } else {
             unmatched_raw.push(raw);
         }
     }
-
-    let hash_dir = flint_core::hash::get_hash_dir()
-        .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_default();
-    let resolver = HashResolver::global(&hash_dir);
 
     let mut best_matches: HashMap<usize, (u32, LiveAssetMatch)> = HashMap::new();
     let mut remaining: Vec<usize> = (0..queries.len()).collect();
@@ -337,21 +460,28 @@ fn find_live_assets_blocking(
                     .into_iter()
                     .next()
                     .unwrap_or_else(|| q.norm.clone());
-                best_matches.insert(
-                    idx,
-                    (
-                        u32::MAX,
-                        LiveAssetMatch {
-                            missing_path: q.original.clone(),
-                            wad_path: wad_path_str.clone(),
-                            wad_name: wad_name.clone(),
-                            chunk_hash: format!("{:016x}", q.exact_hash),
-                            live_path: resolved,
-                            exact: true,
-                        },
-                    ),
-                );
-                continue;
+                let dest_path = q
+                    .dest_path
+                    .clone()
+                    .or_else(|| resolved.contains('/').then(|| resolved.clone()));
+                if let Some(dest_path) = dest_path {
+                    best_matches.insert(
+                        idx,
+                        (
+                            u32::MAX,
+                            LiveAssetMatch {
+                                missing_path: q.original.clone(),
+                                dest_path,
+                                wad_path: wad_path_str.clone(),
+                                wad_name: wad_name.clone(),
+                                chunk_hash: format!("{:016x}", q.exact_hash),
+                                live_path: resolved,
+                                exact: true,
+                            },
+                        ),
+                    );
+                    continue;
+                }
             }
 
             if let Some(&cand_hash) = q.candidate_hashes.iter().find(|h| chunk_hashes.contains(h)) {
@@ -365,20 +495,23 @@ fn find_live_assets_blocking(
                     .get(&idx)
                     .is_none_or(|(best, _)| score > *best);
                 if replace {
-                    best_matches.insert(
-                        idx,
-                        (
-                            score,
-                            LiveAssetMatch {
-                                missing_path: q.original.clone(),
-                                wad_path: wad_path_str.clone(),
-                                wad_name: wad_name.clone(),
-                                chunk_hash: format!("{:016x}", cand_hash),
-                                live_path: resolved,
-                                exact: false,
-                            },
-                        ),
-                    );
+                    if let Some(dest_path) = q.dest_path.clone() {
+                        best_matches.insert(
+                            idx,
+                            (
+                                score,
+                                LiveAssetMatch {
+                                    missing_path: q.original.clone(),
+                                    dest_path,
+                                    wad_path: wad_path_str.clone(),
+                                    wad_name: wad_name.clone(),
+                                    chunk_hash: format!("{:016x}", cand_hash),
+                                    live_path: resolved,
+                                    exact: false,
+                                },
+                            ),
+                        );
+                    }
                 }
                 if *is_primary {
                     continue;
@@ -426,20 +559,23 @@ fn find_live_assets_blocking(
                             .get(&idx)
                             .is_none_or(|(best, _)| score > *best);
                         if replace {
-                            best_matches.insert(
-                                idx,
-                                (
-                                    score,
-                                    LiveAssetMatch {
-                                        missing_path: q.original.clone(),
-                                        wad_path: wad_path_str.clone(),
-                                        wad_name: wad_name.clone(),
-                                        chunk_hash: format!("{:016x}", chunk.path_hash),
-                                        live_path: live_path.clone(),
-                                        exact: false,
-                                    },
-                                ),
-                            );
+                            if let Some(dest_path) = q.dest_path.clone() {
+                                best_matches.insert(
+                                    idx,
+                                    (
+                                        score,
+                                        LiveAssetMatch {
+                                            missing_path: q.original.clone(),
+                                            dest_path,
+                                            wad_path: wad_path_str.clone(),
+                                            wad_name: wad_name.clone(),
+                                            chunk_hash: format!("{:016x}", chunk.path_hash),
+                                            live_path: live_path.clone(),
+                                            exact: false,
+                                        },
+                                    ),
+                                );
+                            }
                         }
                     }
                 }
@@ -489,10 +625,12 @@ pub async fn find_live_assets(
     folder_path: String,
     missing_paths: Vec<String>,
     wad_cache_state: State<'_, WadCacheState>,
+    overlay_state: State<'_, HashOverlayState>,
 ) -> Result<FindLiveAssetsResult, String> {
     let cache = wad_cache_state.get();
+    let overlay = overlay_state.get();
     tokio::task::spawn_blocking(move || {
-        find_live_assets_blocking(&folder_path, missing_paths, cache)
+        find_live_assets_blocking(&folder_path, missing_paths, cache, overlay)
     })
     .await
     .map_err(|e| format!("Live asset search failed: {e}"))?
@@ -584,19 +722,40 @@ mod tests {
 
     #[test]
     fn build_query_hashes_repathed_candidates() {
-        let q = build_query("assets/sirdexal/ahri-mod/particles/ahri_q_mis.tex", Some("ahri")).unwrap();
+        let q = build_path_query(
+            "assets/sirdexal/ahri-mod/particles/ahri_q_mis.tex",
+            "assets/sirdexal/ahri-mod/particles/ahri_q_mis.tex",
+            Some("ahri"),
+        )
+        .unwrap();
         let expected = wad_chunk_hash("assets/characters/ahri/skins/base/particles/ahri_q_mis.tex");
         assert!(q.candidate_hashes.contains(&expected));
     }
 
     #[test]
-    fn build_query_skips_raw_hex_hash() {
-        assert!(build_query("0x0123456789abcdef", Some("ahri")).is_none());
+    fn unhashes_hex_from_files_txt() {
+        let mut local = HashMap::new();
+        parse_hash_list_into(
+            "d29c3cd1df8e6543 assets/sirdexal/talon-mod/particles/talon_w.tex\n",
+            &mut local,
+        );
+        let resolver = HashResolver::global("");
+        let q = build_query("0xd29c3cd1df8e6543", Some("talon"), &local, None, &resolver).unwrap();
+        assert_eq!(
+            q.dest_path.as_deref(),
+            Some("assets/sirdexal/talon-mod/particles/talon_w.tex")
+        );
+        assert!(q.tails.contains(&"particles/talon_w.tex".to_string()));
     }
 
     #[test]
     fn score_prefers_tail_and_primary_wad() {
-        let q = build_query("assets/sirdexal/ahri-mod/particles/ahri_q_mis.tex", Some("ahri")).unwrap();
+        let q = build_path_query(
+            "assets/sirdexal/ahri-mod/particles/ahri_q_mis.tex",
+            "assets/sirdexal/ahri-mod/particles/ahri_q_mis.tex",
+            Some("ahri"),
+        )
+        .unwrap();
         let tail_hit = score_resolved_match(
             &q,
             "assets/characters/ahri/skins/base/particles/ahri_q_mis.tex",

@@ -145,6 +145,7 @@ export async function repairWadBinFile(
 
 export interface LiveAssetMatch {
     missingPath: string;
+    destPath: string;
     wadPath: string;
     wadName: string;
     chunkHash: string;
