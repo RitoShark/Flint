@@ -30,6 +30,7 @@ import type { AssetContainer } from '@babylonjs/core/assetContainer';
 import '@babylonjs/loaders/glTF/2.0';
 
 import { loadThumbnailAsset, type ThumbnailAssetName } from '../api/thumbnail';
+import { createBundledSkybox, type BundledSkybox } from '../babylon/skybox';
 import type { EnvLayer } from './layers';
 
 /** A bundled default texture ships as a ThumbnailAssetName; any other value is
@@ -99,7 +100,8 @@ export function createMapEnvScene(
     // (same rationale as studioScene).
     engine.setHardwareScalingLevel(0.5);
     const scene = new Scene(engine);
-    scene.clearColor = new Color4(0, 0, 0, 0); // transparent → disc shows through
+    scene.clearColor = new Color4(0.106, 0.106, 0.106, 1.0);
+    scene.setRenderingAutoClearDepthStencil(1, false, false, false);
 
     const camera = new ArcRotateCamera(
         'mapenv-cam',
@@ -123,9 +125,18 @@ export function createMapEnvScene(
     const slotMat = new Map<string, StandardMaterial>();
     let liveTextures: Texture[] = [];
     let currentGlb: string | null = null;
+    let skybox: BundledSkybox | null = null;
+    let skyboxVisible = true;
+    let disposed = false;
+
+    void createBundledSkybox(scene, () => disposed).then((sb) => {
+        if (!sb) return;
+        skybox = sb;
+        sb.mesh.setEnabled(skyboxVisible);
+    }).catch(() => {});
 
     engine.runRenderLoop(() => {
-        if (meshes.length > 0) scene.render();
+        if (meshes.length > 0 || skybox) scene.render();
     });
 
     function clearGeometry(): void {
@@ -163,6 +174,7 @@ export function createMapEnvScene(
         }
         for (const mesh of meshes) {
             mesh.alwaysSelectAsActiveMesh = true; // fills the view; skip culling
+            mesh.renderingGroupId = 1;
             const matName = mesh.material?.name ?? mesh.name;
             const arr = slotMeshes.get(matName) ?? [];
             arr.push(mesh);
@@ -304,13 +316,23 @@ export function createMapEnvScene(
         setLayer,
         applyVariation,
         setTransform,
-        setVisible: (visible: boolean) => { for (const mesh of meshes) mesh.setEnabled(visible); },
+        setVisible: (visible: boolean) => {
+            skyboxVisible = visible;
+            skybox?.mesh.setEnabled(visible);
+            scene.clearColor = visible
+                ? new Color4(0.106, 0.106, 0.106, 1.0)
+                : new Color4(0, 0, 0, 0);
+            for (const mesh of meshes) mesh.setEnabled(visible);
+        },
         resize: safeResize,
         isLoaded: () => meshes.length > 0,
         screenshot,
         dispose: () => {
+            disposed = true;
             sizeObserver?.disconnect();
             engine.stopRenderLoop();
+            skybox?.dispose();
+            skybox = null;
             clearGeometry();
             scene.dispose();
             engine.dispose();
