@@ -210,6 +210,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
   // map scene when the env layer actually changed (loads/variation/transform).
   const envSyncRef = useRef<string>('');
   const envLoadingRef = useRef(false);
+  const groundedFullbodyRef = useRef(false);
   // Fire onReady exactly once, when the initial models have all loaded.
   const readyFiredRef = useRef(false);
   const onReadyRef = useRef(onReady);
@@ -660,6 +661,18 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
             try {
               await mapScene.setLayer(envLayer);
               mapScene.setVisible(true);
+              mapScene.setTransform(envLayer.position, envLayer.rotation, envLayer.mapScale);
+              if (!groundedFullbodyRef.current) {
+                groundedFullbodyRef.current = true;
+                const ground = mapScene.getGroundCenter(STAGE_W, STAGE_H);
+                const cur = layersRef.current;
+                const fb = cur.find((l): l is ModelLayer => l.id === 'fullbody' && l.type === 'model');
+                if (ground && fb && fb.x === 200 && fb.y === 50) {
+                  const nextX = Math.max(0, Math.min(STAGE_W - fb.w, Math.round(ground.x - fb.w / 2)));
+                  const nextY = Math.max(0, Math.min(STAGE_H - fb.h, Math.round(ground.y - fb.h * 0.96)));
+                  onChangeRef.current(updateLayer(cur, fb.id, { x: nextX, y: nextY }), false);
+                }
+              }
             } finally {
               envLoadingRef.current = false;
             }

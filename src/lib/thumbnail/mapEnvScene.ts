@@ -16,7 +16,8 @@
 import { Engine } from '@babylonjs/core/Engines/engine';
 import { Scene } from '@babylonjs/core/scene';
 import { ArcRotateCamera } from '@babylonjs/core/Cameras/arcRotateCamera';
-import { Vector3, Color4, Quaternion } from '@babylonjs/core/Maths/math';
+import { Vector3, Color4, Quaternion, Matrix } from '@babylonjs/core/Maths/math';
+import { Ray } from '@babylonjs/core/Culling/ray';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { Color3 } from '@babylonjs/core/Maths/math.color';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
@@ -63,6 +64,7 @@ export interface MapEnvScene {
     resize(): void;
     /** True once a GLB is loaded and has renderable meshes. */
     isLoaded(): boolean;
+    getGroundCenter(stageW: number, stageH: number): { x: number; y: number } | null;
     /** Render the map at the given output size and read it back as a Blob
      *  (transparent where the map doesn't cover). For the export compositor. */
     screenshot(w: number, h: number): Promise<Blob>;
@@ -311,6 +313,43 @@ export function createMapEnvScene(
         : null;
     sizeObserver?.observe(canvas);
 
+    function getGroundCenter(stageW: number, stageH: number): { x: number; y: number } | null {
+        if (meshes.length === 0) return null;
+        root?.computeWorldMatrix(true);
+        let min = new Vector3(Number.MAX_VALUE, Number.MAX_VALUE, Number.MAX_VALUE);
+        let max = new Vector3(-Number.MAX_VALUE, -Number.MAX_VALUE, -Number.MAX_VALUE);
+        for (const mesh of meshes) {
+            mesh.computeWorldMatrix(true);
+            const bb = mesh.getBoundingInfo().boundingBox;
+            min = Vector3.Minimize(min, bb.minimumWorld);
+            max = Vector3.Maximize(max, bb.maximumWorld);
+        }
+        if (min.x > max.x) return null;
+
+        const cx = (min.x + max.x) * 0.5;
+        const cz = (min.z + max.z) * 0.5;
+        const rayOrigin = new Vector3(cx, max.y + 10, cz);
+        const ray = new Ray(rayOrigin, new Vector3(0, -1, 0), max.y - min.y + 20);
+        const pick = scene.pickWithRay(ray, (m) => meshes.includes(m));
+        const groundPt =
+            pick?.hit && pick.pickedPoint
+                ? pick.pickedPoint
+                : new Vector3(cx, min.y + (max.y - min.y) * 0.25, cz);
+
+        const rw = engine.getRenderWidth() || stageW;
+        const rh = engine.getRenderHeight() || stageH;
+        const proj = Vector3.Project(
+            groundPt,
+            Matrix.Identity(),
+            scene.getTransformMatrix(),
+            camera.viewport.toGlobal(rw, rh),
+        );
+        return {
+            x: (proj.x / rw) * stageW,
+            y: (proj.y / rh) * stageH,
+        };
+    }
+
     return {
         getSlots: () => slots.slice(),
         setLayer,
@@ -326,6 +365,7 @@ export function createMapEnvScene(
         },
         resize: safeResize,
         isLoaded: () => meshes.length > 0,
+        getGroundCenter,
         screenshot,
         dispose: () => {
             disposed = true;

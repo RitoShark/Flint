@@ -76,24 +76,19 @@ function seedLayers(sknPath: string): Layer[] {
     hidden: false,
     rot: 0,
     locked: false,
-    // Full-body companion spawns straight-on (level camera). Dev-tuned
-    // defaults: scale 1.10x, Turn Y -20, Tilt X -1, moved in 3D
-    // (X -44, Y -17, Z 50 depth).
-    x: 2, y: 2, w: 398, h: 354,
+    x: 200, y: 50, w: 240, h: 240,
     sknPath,
     anim: '',
     frame: 0,
     maxFrame: 0,
-    scale: 110,
+    scale: 100,
     orbit: -20,
     tiltX: -1,
-    posX: -44,
-    posY: -17,
-    posZ: 50,
+    posX: 0,
+    posY: 0,
+    posZ: 0,
     focusMode: 'full',
     shadow: false,
-    // Complement of the hero: this model reads as standing AROUND the circle,
-    // so it's cut away wherever it would intrude on the hero's disc.
     clipMode: 'outside',
   };
   // Match riot-base.thumbnail.json exactly: title, subtitle, hero, disc,
