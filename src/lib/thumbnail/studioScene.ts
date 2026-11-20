@@ -388,11 +388,12 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
         if (m.focusMode === 'head') {
             const head = findHeadFocus(m);
             if (head) {
-                // ORIGINAL head framing (commit d4b6595 — the version the artist
-                // liked): fit the whole bbox, target the scaled head, zoom 1.6,
-                // default beta (60°). Do NOT "improve" this — the level-beta /
-                // head-region-crop experiments made it worse.
-                frameCamera(m.camera, m.bbox, aspect, head.scale(s), 1.6);
+                const [[minX, minY, minZ], [maxX, maxY, maxZ]] = m.bbox;
+                const scaledBbox: [[number, number, number], [number, number, number]] = [
+                    [minX * s, minY * s, minZ * s],
+                    [maxX * s, maxY * s, maxZ * s],
+                ];
+                frameCamera(m.camera, scaledBbox, aspect, head.scale(s), 2.8);
                 return;
             }
         }
@@ -592,9 +593,10 @@ export function createThumbnailScene(canvas: HTMLCanvasElement, stage: StageDims
     function findHeadFocus(m: ModelState): Vector3 | null {
         if (!m.joints || m.joints.length === 0) return null;
         for (const hint of HEAD_BONE_HINTS) {
-            const bone = m.joints.find(j => j.name.toLowerCase().includes(hint));
-            if (bone) {
-                const [x, y, z] = bone.world_position;
+            const matches = m.joints.filter(j => j.name.toLowerCase().includes(hint));
+            if (matches.length > 0) {
+                matches.sort((a, b) => a.name.length - b.name.length);
+                const [x, y, z] = matches[0].world_position;
                 return new Vector3(x, y, z);
             }
         }
