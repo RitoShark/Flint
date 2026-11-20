@@ -482,7 +482,7 @@ export async function composeThumbnail(opts: ComposeOptions): Promise<Blob> {
   // OffscreenCanvas 2D context won't wait on `font-display: swap`, so an
   // unloaded face would silently fall back. Load every distinct text font.
   if (typeof document !== 'undefined' && document.fonts) {
-    const families = new Set(['Anton', ...textLayers.map(t => t.font)]);
+    const families = new Set(textLayers.map(t => t.font));
     await Promise.all(
       Array.from(families).map(font =>
         document.fonts.load(`800 40px "${font.replace(/"/g, '')}"`).catch(() => { /* fallback face is fine */ }),

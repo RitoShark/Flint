@@ -176,7 +176,6 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
     // `ready` resolves once all pending fonts (incl. the bundled Anton) load;
     // `loadingdone` fires for any later loads (e.g. a font requested on a
     // preset swap). Both re-fit the text.
-    fonts.load?.('800 40px "Anton"').then(bump).catch(() => { /* ignore */ });
     fonts.ready.then(bump).catch(() => { /* ignore */ });
     fonts.addEventListener?.('loadingdone', bump);
     return () => { cancelled = true; fonts.removeEventListener?.('loadingdone', bump); };

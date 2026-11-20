@@ -4,9 +4,13 @@
 export type TextMeasure = (text: string, size: number) => { w: number; h: number };
 
 export function fontFamilyStack(font: string): string {
-  const clean = font.replace(/"/g, '').trim() || 'Anton';
-  if (clean.toLowerCase() === 'anton') return '"Anton", sans-serif';
-  return `"${clean}", "Anton", sans-serif`;
+  const clean = font.replace(/"/g, '').trim() || 'Beaufort for LOL';
+  const lower = clean.toLowerCase();
+  if (lower === 'beaufort for lol' || lower === 'beaufortforlol') {
+    return '"Beaufort for LOL", "BeaufortforLOL", Georgia, "Times New Roman", serif';
+  }
+  if (lower === 'anton') return '"Anton", sans-serif';
+  return `"${clean}", sans-serif`;
 }
 
 const DEFAULT_MIN_SIZE = 6;
