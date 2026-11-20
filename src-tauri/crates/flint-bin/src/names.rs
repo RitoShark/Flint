@@ -136,6 +136,8 @@ fn build_mod_root_names(root: &Path) -> crate::Trailer {
     let root = root.to_path_buf();
     let mut trailer = crate::Trailer::new();
 
+    crate::hash_store::read_dot_hashes_into(&root, &mut trailer);
+
     // 1. files.txt — `<hex> <name>`, or a bare path from the older format.
     if let Ok(list) = fs::read_to_string(root.join("files.txt")) {
         for line in list.lines() {

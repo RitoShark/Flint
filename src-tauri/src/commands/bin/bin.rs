@@ -1,5 +1,5 @@
 use flint_core::bin::{
-    bin_to_json, is_hash_hex, json_to_bin, mod_root, read_bin, remember_custom_hash_names,
+    bin_to_json, json_to_bin, read_bin, remember_custom_hash_names,
     text_to_bin, tree_to_text_cached, write_bin, Bin,
 };
 use serde::{Deserialize, Serialize};
@@ -64,52 +64,7 @@ pub(crate) fn encode_capturing_names(
 /// NAME (never overwritten) so saving one bin cannot drop another's entries, and
 /// sorted so re-saving produces no diff.
 pub(crate) fn merge_into_files_txt(bin_path: &Path, trailer: &flint_core::bin::Trailer) {
-    if trailer.is_empty() {
-        return;
-    }
-    let Some(root) = mod_root(bin_path) else {
-        return;
-    };
-    let list = root.join("files.txt");
-
-    let mut entries: std::collections::BTreeMap<String, String> = Default::default();
-    for line in fs::read_to_string(&list).unwrap_or_default().lines() {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        match line.split_once(char::is_whitespace) {
-            Some((hex, name)) if is_hash_hex(hex) => {
-                entries.insert(name.trim().to_string(), hex.to_ascii_lowercase());
-            }
-            // A bare path: the older format, or a hand-written line. It can only
-            // be an asset path, so hash it as one.
-            _ => {
-                entries.insert(line.to_string(), format!("{:016x}", ritoshark::hash::xxh64(line)));
-            }
-        }
-    }
-
-    let before = entries.len();
-    for (hash, name) in &trailer.names {
-        entries.insert(name.clone(), format!("{hash:08x}"));
-    }
-    for (hash, name) in &trailer.files {
-        entries.insert(name.clone(), format!("{hash:016x}"));
-    }
-    if entries.len() == before {
-        return;
-    }
-
-    let contents = entries
-        .iter()
-        .map(|(name, hex)| format!("{hex} {name}"))
-        .collect::<Vec<_>>()
-        .join("\n");
-    match fs::write(&list, contents) {
-        Ok(()) => tracing::info!("Recorded {} name(s) in {}", entries.len(), list.display()),
-        Err(e) => tracing::warn!("Could not write {}: {e}", list.display()),
-    }
+    flint_core::bin::hash_store::merge_trailer_into_dot_hashes(bin_path, trailer);
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

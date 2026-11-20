@@ -100,10 +100,11 @@ fn is_missing_exempt(rel: &str) -> bool {
 /// Records about the folder rather than content shipped in it. Nothing references
 /// them by design — `files.txt` is the name table the whole ecosystem reads back.
 fn is_folder_metadata(rel: &str) -> bool {
-    matches!(
-        rel,
-        "files.txt" | "hashed_files.json" | "hashes.txt" | ".gitkeep"
-    )
+    rel.starts_with(".hashes/")
+        || matches!(
+            rel,
+            "files.txt" | "hashed_files.json" | "hashes.txt" | ".gitkeep"
+        )
 }
 
 fn is_bloat_exempt(rel: &str) -> bool {
@@ -202,7 +203,13 @@ fn collect_from_text(text: &str, out: &mut HashSet<String>) {
     }
 }
 
-fn collect_mentions(bin: &Bin, names: &HashMapper, text: Option<&str>, out: &mut Mentions) {
+fn collect_mentions(
+    bin: &Bin,
+    names: &HashMapper,
+    local_files: &std::collections::BTreeMap<u64, String>,
+    text: Option<&str>,
+    out: &mut Mentions,
+) {
     for dep in &bin.linked {
         add_mention(dep, &mut out.paths);
     }
@@ -214,7 +221,7 @@ fn collect_mentions(bin: &Bin, names: &HashMapper, text: Option<&str>, out: &mut
     if let Some(text) = text {
         collect_from_text(text, &mut out.paths);
     }
-    name_file_mentions(bin, names, out);
+    name_file_mentions(bin, names, local_files, out);
     add_derived_variants(&out.paths, &mut out.derived);
 }
 
@@ -224,6 +231,7 @@ fn scan_bin(
     bin: &Bin,
     rel: &str,
     names: &HashMapper,
+    local_files: &std::collections::BTreeMap<u64, String>,
     present: &HashSet<u64>,
 ) -> (Vec<CheckIssue>, Mentions, MigrationTally) {
     // LANDMINE: render through the guard the caller already holds. `tree_to_text_cached`
@@ -232,7 +240,7 @@ fn scan_bin(
     // reentrant, and the audit fans this out across rayon.
     let text = crate::codec::tree_to_text_with_hashes(bin, names).ok();
     let mut mentions = Mentions::default();
-    collect_mentions(bin, names, text.as_deref(), &mut mentions);
+    collect_mentions(bin, names, local_files, text.as_deref(), &mut mentions);
 
     let mut issues = check_animation_graph(bin, rel, names);
     issues.extend(check_animation_assets(bin, rel, names, present, text.as_deref()));
@@ -253,13 +261,19 @@ tool and is in no global dictionary. The printer never sees that record — it r
 against the global table only — which is why these references were invisible to the audit
 before, and they are exactly the mod's OWN assets. Whatever stays unnamed is still
 checked, just by hash. */
-fn name_file_mentions(bin: &Bin, names: &HashMapper, out: &mut Mentions) {
+fn name_file_mentions(
+    bin: &Bin,
+    names: &HashMapper,
+    local_files: &std::collections::BTreeMap<u64, String>,
+    out: &mut Mentions,
+) {
     let own = ritoshark::bin::read_trailer(&bin.trailing).files;
     let hashes = std::mem::take(&mut out.unnamed_files);
     for hash in hashes {
         match own
             .get(&hash)
             .map(String::as_str)
+            .or_else(|| local_files.get(&hash).map(String::as_str))
             .or_else(|| names.get(hash))
         {
             Some(name) => add_mention(name, &mut out.paths),
@@ -410,8 +424,12 @@ pub fn check_one_file(dir: &Path, rel: &str) -> Result<Vec<CheckIssue>, String> 
         .collect();
     present.extend(inherited_base_hashes(dir));
 
+    let mut local_trailer = crate::Trailer::new();
+    crate::hash_store::read_dot_hashes_into(dir, &mut local_trailer);
+    let local_files = local_trailer.files;
+
     let bin_names = flint_hash::hash::bin_dict::get_cached_bin_hashes().read();
-    let (mut issues, mentions, tally) = scan_bin(&bin, &rel, &bin_names, &present);
+    let (mut issues, mentions, tally) = scan_bin(&bin, &rel, &bin_names, &local_files, &present);
     drop(bin_names);
     issues.extend(tally.into_issues());
 
@@ -485,6 +503,10 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
         BinFailed,
     }
 
+    let mut local_trailer = crate::Trailer::new();
+    crate::hash_store::read_dot_hashes_into(dir, &mut local_trailer);
+    let local_files = local_trailer.files;
+
     let bin_names = flint_hash::hash::bin_dict::get_cached_bin_hashes().read();
     let names_ref = &*bin_names;
     let scans: Vec<(usize, FileScan)> = files
@@ -504,7 +526,7 @@ pub fn audit_wad_folder(dir: &Path) -> Result<AuditReport, String> {
                         match read_bin(&data) {
                             Ok(bin) => {
                                 let (issues, mentions, tally) =
-                                    scan_bin(&bin, rel, names_ref, &present);
+                                    scan_bin(&bin, rel, names_ref, &local_files, &present);
                                 FileScan::BinOk { issues, mentions, tally }
                             }
                             Err(_) => FileScan::BinFailed,

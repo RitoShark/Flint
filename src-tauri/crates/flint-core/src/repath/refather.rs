@@ -612,6 +612,13 @@ pub fn repath_project(
     result.files_relocated = relocate_assets(file_base, &plan, config)?;
     tracing::debug!("[TIMING] step5 relocate_assets ({} files): {:?}", result.files_relocated, t_step5.elapsed());
 
+    let repathed_game: Vec<String> = plan.dest.values().cloned().collect();
+    crate::bin::hash_store::merge_into_universe(
+        file_base,
+        crate::bin::hash_store::HashUniverse::Game,
+        &repathed_game,
+    );
+
     if config.cleanup_unused {
         let t_step6 = std::time::Instant::now();
         result.files_removed = cleanup_unused_files(file_base, &plan, &preserved_paths)?;

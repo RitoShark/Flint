@@ -101,6 +101,19 @@ pub fn collect_project_tables(project_path: &Path) -> ProjectTables {
         }
     }
 
+    let dot_hashes = project_path.join(".hashes");
+    if dot_hashes.is_dir() {
+        if let Ok(text) = std::fs::read_to_string(dot_hashes.join("game.txt")) {
+            out.game.extend(valid_lines(&text).map(str::to_string));
+        }
+        if let Ok(text) = std::fs::read_to_string(dot_hashes.join("binentries.txt")) {
+            out.binentries.extend(valid_lines(&text).map(str::to_string));
+        }
+        if let Ok(text) = std::fs::read_to_string(dot_hashes.join("binhashes.txt")) {
+            out.binhashes.extend(valid_lines(&text).map(str::to_string));
+        }
+    }
+
     let Ok(folders) = flint_core::export::project_wad_folders(project_path) else {
         return out;
     };

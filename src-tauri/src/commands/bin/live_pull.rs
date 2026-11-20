@@ -216,6 +216,15 @@ fn find_project_root(folder: &Path) -> Option<PathBuf> {
 
 fn load_local_hash_names(folder: &Path) -> HashMap<u64, String> {
     let mut map = HashMap::new();
+    let mut trailer = flint_core::bin::Trailer::new();
+    flint_core::bin::hash_store::read_dot_hashes_into(folder, &mut trailer);
+    if !trailer.files.is_empty() {
+        tracing::info!(
+            "[live_pull] Loaded {} game entries from .hashes/",
+            trailer.files.len()
+        );
+        map.extend(trailer.files);
+    }
     let files_txt = folder.join("files.txt");
     if let Ok(content) = std::fs::read_to_string(&files_txt) {
         parse_hash_list_into(&content, &mut map);

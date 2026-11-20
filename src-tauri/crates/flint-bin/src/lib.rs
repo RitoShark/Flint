@@ -7,6 +7,7 @@ pub mod bin_json;
 pub mod checks;
 pub mod codec;
 pub mod concat;
+pub mod hash_store;
 pub mod migration;
 pub mod repair;
 pub mod meta_schema;
