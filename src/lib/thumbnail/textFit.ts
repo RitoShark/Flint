@@ -3,6 +3,12 @@
  *  canvas 2D context, tests use a cheap fake. */
 export type TextMeasure = (text: string, size: number) => { w: number; h: number };
 
+export function fontFamilyStack(font: string): string {
+  const clean = font.replace(/"/g, '').trim() || 'Anton';
+  if (clean.toLowerCase() === 'anton') return '"Anton", sans-serif';
+  return `"${clean}", "Anton", sans-serif`;
+}
+
 const DEFAULT_MIN_SIZE = 6;
 
 /**

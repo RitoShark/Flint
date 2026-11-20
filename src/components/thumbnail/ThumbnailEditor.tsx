@@ -56,15 +56,15 @@ function seedLayers(sknPath: string): Layer[] {
     hidden: false,
     rot: 0,
     locked: false,
-    x: 0, y: 0, w: 400, h: 360,
+    x: 257, y: -2, w: 385, h: 363,
     sknPath,
     anim: '',
     frame: 0,
     maxFrame: 0,
-    scale: 200,
+    scale: 250,
     orbit: 0,
     focusMode: 'head',
-    clipMode: 'outside',
+    clipMode: 'inside',
   };
   const fullbody: Layer = {
     id: 'fullbody',
@@ -73,7 +73,7 @@ function seedLayers(sknPath: string): Layer[] {
     hidden: false,
     rot: 0,
     locked: false,
-    x: 200, y: 50, w: 240, h: 240,
+    x: 20, y: 50, w: 320, h: 280,
     sknPath,
     anim: '',
     frame: 0,
@@ -86,7 +86,7 @@ function seedLayers(sknPath: string): Layer[] {
     posZ: 0,
     focusMode: 'full',
     shadow: false,
-    clipMode: 'inside',
+    clipMode: 'outside',
   };
   // Match riot-base.thumbnail.json exactly: title, subtitle, hero, disc,
   // fullbody, env.

@@ -5,7 +5,7 @@ import { DiscLayer, EnvLayer, Layer, ModelLayer, TextLayer, updateLayer } from '
 import { AnimClip, createThumbnailScene, MeshInfo, ThumbnailScene } from '../../lib/thumbnail/studioScene';
 import type { SkinForm } from '../../lib/api/mesh';
 import { createMapEnvScene, MapEnvScene } from '../../lib/thumbnail/mapEnvScene';
-import { fitFontSize, TextMeasure } from '../../lib/thumbnail/textFit';
+import { fitFontSize, fontFamilyStack, TextMeasure } from '../../lib/thumbnail/textFit';
 import { resolveBackground, resolveGlowColor, resolveTextStyle, ThumbnailPresetId } from '../../lib/thumbnail/hue';
 import { clipPathFor, clipPathOutside, discClipInModelSpace } from '../../lib/thumbnail/discClip';
 import { DiscComposite } from './DiscComposite';
@@ -125,7 +125,7 @@ function canvasMeasure(layer: TextLayer): TextMeasure {
   return (text: string, size: number) => {
     const ctx = getMeasureCtx();
     if (!ctx) return { w: text.length * size * 0.6, h: size * TEXT_LINE_HEIGHT };
-    ctx.font = `${layer.italic ? 'italic ' : ''}800 ${size}px ${layer.font}`;
+    ctx.font = `${layer.italic ? 'italic ' : ''}800 ${size}px ${fontFamilyStack(layer.font)}`;
     const w = ctx.measureText(text).width + Math.max(0, text.length - 1) * layer.spacing;
     return { w, h: size * TEXT_LINE_HEIGHT };
   };
@@ -176,6 +176,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
     // `ready` resolves once all pending fonts (incl. the bundled Anton) load;
     // `loadingdone` fires for any later loads (e.g. a font requested on a
     // preset swap). Both re-fit the text.
+    fonts.load?.('800 40px "Anton"').then(bump).catch(() => { /* ignore */ });
     fonts.ready.then(bump).catch(() => { /* ignore */ });
     fonts.addEventListener?.('loadingdone', bump);
     return () => { cancelled = true; fonts.removeEventListener?.('loadingdone', bump); };
@@ -667,10 +668,9 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
                 const ground = mapScene.getGroundCenter(STAGE_W, STAGE_H);
                 const cur = layersRef.current;
                 const fb = cur.find((l): l is ModelLayer => l.id === 'fullbody' && l.type === 'model');
-                if (ground && fb && fb.x === 200 && fb.y === 50) {
-                  const nextX = Math.max(0, Math.min(STAGE_W - fb.w, Math.round(ground.x - fb.w / 2)));
+                if (ground && fb && fb.x === 20 && fb.y === 50) {
                   const nextY = Math.max(0, Math.min(STAGE_H - fb.h, Math.round(ground.y - fb.h * 0.96)));
-                  onChangeRef.current(updateLayer(cur, fb.id, { x: nextX, y: nextY }), false);
+                  onChangeRef.current(updateLayer(cur, fb.id, { y: nextY }), false);
                 }
               }
             } finally {
@@ -1289,7 +1289,7 @@ function LayerBody({ layer, preset, hue, fontVersion }: { layer: Layer; preset: 
     return (
       <div
         className="tb-body"
-        style={{ fontSize: fitted, fontFamily: layer.font, fontStyle: layer.italic ? 'italic' : 'normal', letterSpacing: layer.spacing, color, textShadow }}
+        style={{ fontSize: fitted, fontFamily: fontFamilyStack(layer.font), fontStyle: layer.italic ? 'italic' : 'normal', letterSpacing: layer.spacing, color, textShadow }}
       >
         {lines.map((line, i) => (
           // Empty lines (a blank row from a plain Enter) still need to take

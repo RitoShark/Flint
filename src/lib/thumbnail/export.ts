@@ -77,7 +77,7 @@
 import type { Layer, TextLayer, DiscLayer, DecoLayer, FrameLayer } from './layers';
 import type { ThumbnailScene } from './studioScene';
 import type { MapEnvScene } from './mapEnvScene';
-import { fitFontSize, type TextMeasure } from './textFit';
+import { fitFontSize, fontFamilyStack, type TextMeasure } from './textFit';
 import { resolveGlowColor, resolveTextColorEx, resolveTextGlow, type ThumbnailPresetId } from './hue';
 import { loadThumbnailAsset, type ThumbnailAssetName } from '../api/thumbnail';
 import { discClipEllipse } from './discClip';
@@ -229,7 +229,7 @@ function applyLayerShadow(
 
 function canvasMeasureFor(ctx: OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D, layer: TextLayer, scale: number): TextMeasure {
   return (text: string, size: number) => {
-    ctx.font = `${layer.italic ? 'italic ' : ''}800 ${size}px ${layer.font}`;
+    ctx.font = `${layer.italic ? 'italic ' : ''}800 ${size}px ${fontFamilyStack(layer.font)}`;
     // letterSpacing is set here (not just in drawTextLayer) so measureText
     // already includes the tracking between glyphs — matching what actually
     // gets painted. Do NOT also add `(text.length-1)*spacing` on top of this;
@@ -375,7 +375,7 @@ function drawTextLayer(
     ctx.translate(rect.x, rect.y);
   }
 
-  ctx.font = `${layer.italic ? 'italic ' : ''}800 ${fitted}px ${layer.font}`;
+  ctx.font = `${layer.italic ? 'italic ' : ''}800 ${fitted}px ${fontFamilyStack(layer.font)}`;
   // Match the live preview's CSS `letter-spacing: <spacing>px` (ThumbnailArtboard's
   // `.tb-body` style) and the measurement above — without this, fillText paints
   // with zero tracking and the export reads tighter than both the preview and
@@ -482,9 +482,10 @@ export async function composeThumbnail(opts: ComposeOptions): Promise<Blob> {
   // OffscreenCanvas 2D context won't wait on `font-display: swap`, so an
   // unloaded face would silently fall back. Load every distinct text font.
   if (typeof document !== 'undefined' && document.fonts) {
+    const families = new Set(['Anton', ...textLayers.map(t => t.font)]);
     await Promise.all(
-      Array.from(new Set(textLayers.map(t => t.font))).map(font =>
-        document.fonts.load(`800 40px ${font}`).catch(() => { /* fallback face is fine */ }),
+      Array.from(families).map(font =>
+        document.fonts.load(`800 40px "${font.replace(/"/g, '')}"`).catch(() => { /* fallback face is fine */ }),
       ),
     );
   }
