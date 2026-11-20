@@ -1100,7 +1100,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
           <Button
             ref={studioBtnRef}
             type="button"
-            className="tb-model-bar__btn" variant="secondary" size="sm" iconOnly active={studioOpen}
+            className="tb-model-bar__btn" variant="secondary" size="sm" active={studioOpen}
             title="Edit meshes & animation"
             onClick={() => setStudioOpen(o => !o)}
           >
@@ -1109,7 +1109,7 @@ export function ThumbnailArtboard({ layers, selId, onSelect, onChange, onBeginGe
           </Button>
           <Button
             type="button"
-            className="tb-model-bar__btn" variant="secondary" size="sm" iconOnly
+            className="tb-model-bar__btn" variant="secondary" size="sm"
             title="Turn the character to face the camera"
             onClick={faceSelectedModel}
           >

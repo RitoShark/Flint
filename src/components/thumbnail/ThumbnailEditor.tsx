@@ -56,18 +56,15 @@ function seedLayers(sknPath: string): Layer[] {
     hidden: false,
     rot: 0,
     locked: false,
-    // Large box overlapping the disc, head-focus. Hero scale = 250.
-    x: 257, y: -2, w: 385, h: 363,
+    x: 0, y: 0, w: 400, h: 360,
     sknPath,
     anim: '',
     frame: 0,
     maxFrame: 0,
-    scale: 250,
+    scale: 200,
     orbit: 0,
     focusMode: 'head',
-    // The hero occupies the INSIDE of the circle; the full-body companion
-    // below takes the outside. Together they tile the frame at the ring.
-    clipMode: 'inside',
+    clipMode: 'outside',
   };
   const fullbody: Layer = {
     id: 'fullbody',
@@ -89,7 +86,7 @@ function seedLayers(sknPath: string): Layer[] {
     posZ: 0,
     focusMode: 'full',
     shadow: false,
-    clipMode: 'outside',
+    clipMode: 'inside',
   };
   // Match riot-base.thumbnail.json exactly: title, subtitle, hero, disc,
   // fullbody, env.
