@@ -2,10 +2,11 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
-use flint_core::hash::wad_chunk_hash;
+use flint_core::hash::{get_cached_bin_hashes, wad_chunk_hash};
 use flint_core::league::detect_league_installation;
 use flint_core::overlay::{HashResolver, ProjectHashOverlay};
 use flint_core::path_slash::to_slash;
+use flint_core::repath::refather::{repath_asset_path, RepathConfig};
 use flint_core::wad::adapter::{extract_chunk, WadHandle};
 use flint_core::wad::cache::WadCache;
 use flint_core::wad::format::WadChunk;
@@ -259,6 +260,73 @@ fn parse_hex_u64(raw: &str) -> Option<u64> {
     u64::from_str_radix(hex, 16).ok()
 }
 
+fn load_project_repath_config(folder: &Path, folder_champion: Option<&str>) -> Option<RepathConfig> {
+    let root = find_project_root(folder)?;
+    let mut creator = String::new();
+    let mut project = String::new();
+    let mut champion = folder_champion.unwrap_or("").to_string();
+    let mut target_skin_id = 0u32;
+
+    if let Ok(raw) = std::fs::read_to_string(root.join("flint.json")) {
+        if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
+            if let Some(prefix) = val.get("repath_prefix").and_then(|v| v.as_str()) {
+                if let Some((c, p)) = prefix.split_once('/') {
+                    creator = c.to_string();
+                    project = p.to_string();
+                }
+            }
+            if let Some(src) = val.get("source") {
+                if let Some(c) = src.get("champion").and_then(|v| v.as_str()) {
+                    champion = c.to_ascii_lowercase();
+                }
+                if let Some(id) = src.get("skin_id").and_then(|v| v.as_u64()) {
+                    target_skin_id = id as u32;
+                }
+            }
+        }
+    }
+
+    if (creator.is_empty() || project.is_empty())
+        && std::fs::read_to_string(root.join("mod.config.json")).is_ok()
+    {
+        if let Ok(raw) = std::fs::read_to_string(root.join("mod.config.json")) {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&raw) {
+                if project.is_empty() {
+                    if let Some(n) = val.get("name").and_then(|v| v.as_str()) {
+                        project = n.to_string();
+                    }
+                }
+                if creator.is_empty() {
+                    if let Some(a) = val
+                        .get("authors")
+                        .and_then(|v| v.as_array())
+                        .and_then(|arr| arr.first())
+                        .and_then(|v| v.as_str())
+                    {
+                        creator = a.to_string();
+                    }
+                }
+            }
+        }
+    }
+
+    if creator.is_empty() || project.is_empty() || champion.is_empty() {
+        return None;
+    }
+
+    Some(RepathConfig {
+        creator_name: creator,
+        project_name: project,
+        champion,
+        target_skin_id,
+        cleanup_unused: false,
+        skip_bin_cleanup: true,
+        sub_characters: Vec::new(),
+        repath_sfx: true,
+        repath_vo: false,
+    })
+}
+
 fn build_query(
     raw: &str,
     champion: Option<&str>,
@@ -271,6 +339,13 @@ fn build_query(
             .get(&hash)
             .cloned()
             .or_else(|| overlay.and_then(|o| o.wad_get(hash).map(str::to_string)))
+            .or_else(|| {
+                get_cached_bin_hashes()
+                    .read()
+                    .get(hash)
+                    .map(str::to_string)
+                    .filter(|s| s.contains('/'))
+            })
             .or_else(|| {
                 resolver
                     .resolve_wad(&[hash])
@@ -438,6 +513,15 @@ fn find_live_assets_blocking(
         .unwrap_or_default();
     let resolver = HashResolver::global(&hash_dir);
     let local_names = load_local_hash_names(folder);
+    let repath_config = load_project_repath_config(folder, champion.as_deref());
+    if let Some(ref cfg) = repath_config {
+        tracing::info!(
+            "[live_pull] Loaded repath config: prefix={} champion={} skin_id={}",
+            cfg.prefix(),
+            cfg.champion,
+            cfg.target_skin_id
+        );
+    }
 
     let mut queries = Vec::new();
     let mut unmatched_raw = Vec::new();
@@ -583,6 +667,34 @@ fn find_live_assets_blocking(
                 }
                 for &idx in &search_indices {
                     let q = &queries[idx];
+                    if q.dest_path.is_none() {
+                        if let Some(ref cfg) = repath_config {
+                            if let Some(repathed) = repath_asset_path(live_path, cfg) {
+                                let repathed_norm =
+                                    repathed.replace('\\', "/").trim_start_matches('/').to_string();
+                                if wad_chunk_hash(&repathed_norm.to_ascii_lowercase()) == q.exact_hash
+                                {
+                                    best_matches.insert(
+                                        idx,
+                                        (
+                                            u32::MAX,
+                                            LiveAssetMatch {
+                                                missing_path: q.original.clone(),
+                                                dest_path: repathed_norm,
+                                                wad_path: wad_path_str.clone(),
+                                                wad_name: wad_name.clone(),
+                                                chunk_hash: format!("{:016x}", chunk.path_hash),
+                                                live_path: live_path.clone(),
+                                                exact: true,
+                                            },
+                                        ),
+                                    );
+                                    continue;
+                                }
+                            }
+                        }
+                        continue;
+                    }
                     if let Some(score) =
                         score_resolved_match(q, &live_lower, champion.as_deref(), *is_primary)
                     {

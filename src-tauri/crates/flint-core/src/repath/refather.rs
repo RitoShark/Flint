@@ -255,6 +255,11 @@ impl RepathConfig {
     }
 }
 
+pub fn repath_asset_path(path: &str, config: &RepathConfig) -> Option<String> {
+    AssetPath::parse(path, &config.champion, &config.sub_characters)
+        .map(|parsed| parsed.to_repathed(config))
+}
+
 #[derive(Debug, Clone)]
 pub struct RepathResult {
     pub bins_processed: usize,
