@@ -142,3 +142,42 @@ export async function repairWadBinFile(
 ): Promise<{ changed: number; repaired: string[]; blocked: string[] }> {
     return invokeCommand('repair_wad_bin_file', { folderPath, file, kind });
 }
+
+export interface LiveAssetMatch {
+    missingPath: string;
+    wadPath: string;
+    wadName: string;
+    chunkHash: string;
+    livePath: string;
+    exact: boolean;
+}
+
+export interface FindLiveAssetsResult {
+    matches: LiveAssetMatch[];
+    unmatched: string[];
+}
+
+export interface PullLiveAssetItem {
+    missingPath: string;
+    wadPath: string;
+    chunkHash: string;
+}
+
+export interface PullLiveAssetsResult {
+    pulled: number;
+    failed: string[];
+}
+
+export async function findLiveAssets(
+    folderPath: string,
+    missingPaths: string[],
+): Promise<FindLiveAssetsResult> {
+    return invokeCommand('find_live_assets', { folderPath, missingPaths });
+}
+
+export async function pullLiveAssets(
+    folderPath: string,
+    items: PullLiveAssetItem[],
+): Promise<PullLiveAssetsResult> {
+    return invokeCommand('pull_live_assets', { folderPath, items });
+}

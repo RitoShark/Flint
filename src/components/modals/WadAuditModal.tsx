@@ -67,6 +67,10 @@ export const WadAuditModal: React.FC = () => {
     const [report, setReport] = useState<api.AuditReport | null>(null);
     const [loading, setLoading] = useState(true);
     const [fixing, setFixing] = useState(false);
+    const [checkingLive, setCheckingLive] = useState(false);
+    const [pullingPath, setPullingPath] = useState<string | null>(null);
+    const [liveMatches, setLiveMatches] = useState<Record<string, api.LiveAssetMatch>>({});
+    const [liveUnmatched, setLiveUnmatched] = useState<Set<string>>(() => new Set());
     const [error, setError] = useState<string | null>(null);
     const searchRef = useRef<HTMLInputElement | null>(null);
 
@@ -104,6 +108,8 @@ export const WadAuditModal: React.FC = () => {
         if (!isVisible || !folderPath) return;
         setReport(null);
         setQuery('');
+        setLiveMatches({});
+        setLiveUnmatched(new Set());
         void scan(true);
     }, [isVisible, folderPath, scan]);
 
@@ -317,6 +323,121 @@ export const WadAuditModal: React.FC = () => {
         });
     }, [retypable, runRetypes]);
 
+    const foundOnLive = useMemo(
+        () => missing.map((p) => liveMatches[p]).filter((m): m is api.LiveAssetMatch => !!m),
+        [missing, liveMatches],
+    );
+
+    const checkLive = useCallback(async () => {
+        if (!missing.length || checkingLive || fixing) return;
+        setCheckingLive(true);
+        try {
+            const res = await api.findLiveAssets(folderPath, missing);
+            setLiveMatches((prev) => {
+                const next = { ...prev };
+                for (const m of res.matches) next[m.missingPath] = m;
+                return next;
+            });
+            setLiveUnmatched((prev) => {
+                const next = new Set(prev);
+                for (const u of res.unmatched) next.add(u);
+                for (const m of res.matches) next.delete(m.missingPath);
+                return next;
+            });
+            if (res.matches.length) {
+                showToast(
+                    'success',
+                    `Found ${res.matches.length} of ${missing.length} missing asset${missing.length === 1 ? '' : 's'} on live`,
+                );
+            } else {
+                showToast('info', 'No matching assets found on live');
+            }
+        } catch (e) {
+            showToast('error', e instanceof Error ? e.message : String(e));
+        } finally {
+            setCheckingLive(false);
+        }
+    }, [folderPath, missing, checkingLive, fixing, showToast]);
+
+    const pullSingle = useCallback(
+        async (path: string) => {
+            if (fixing || checkingLive || pullingPath) return;
+            setPullingPath(path);
+            try {
+                let match = liveMatches[path];
+                if (!match) {
+                    const found = await api.findLiveAssets(folderPath, [path]);
+                    if (!found.matches.length) {
+                        setLiveUnmatched((prev) => {
+                            const next = new Set(prev);
+                            next.add(path);
+                            return next;
+                        });
+                        showToast('info', 'Not found on live');
+                        return;
+                    }
+                    match = found.matches[0];
+                    setLiveMatches((prev) => ({ ...prev, [path]: match }));
+                }
+
+                const res = await api.pullLiveAssets(folderPath, [
+                    {
+                        missingPath: path,
+                        wadPath: match.wadPath,
+                        chunkHash: match.chunkHash,
+                    },
+                ]);
+                if (res.pulled > 0) {
+                    showToast('success', `Pulled ${path} from ${match.wadName}`);
+                    setLiveMatches((prev) => {
+                        const next = { ...prev };
+                        delete next[path];
+                        return next;
+                    });
+                    await scan(false);
+                } else if (res.failed.length) {
+                    showToast('error', res.failed[0]);
+                }
+            } catch (e) {
+                showToast('error', e instanceof Error ? e.message : String(e));
+            } finally {
+                setPullingPath(null);
+            }
+        },
+        [folderPath, fixing, checkingLive, pullingPath, liveMatches, showToast, scan],
+    );
+
+    const pullAllFound = useCallback(async () => {
+        if (!foundOnLive.length || fixing || checkingLive) return;
+        setFixing(true);
+        try {
+            const res = await api.pullLiveAssets(
+                folderPath,
+                foundOnLive.map((m) => ({
+                    missingPath: m.missingPath,
+                    wadPath: m.wadPath,
+                    chunkHash: m.chunkHash,
+                })),
+            );
+            if (res.pulled > 0) {
+                showToast(
+                    'success',
+                    `Pulled ${res.pulled} asset${res.pulled === 1 ? '' : 's'} from live`,
+                );
+                setLiveMatches({});
+                setLiveUnmatched(new Set());
+                await scan(false);
+            }
+            if (res.failed.length) {
+                showToast('error', `${res.failed.length} failed: ${res.failed[0]}`);
+            }
+        } catch (e) {
+            showToast('error', e instanceof Error ? e.message : String(e));
+        } finally {
+            setFixing(false);
+        }
+    }, [folderPath, foundOnLive, fixing, checkingLive, showToast, scan]);
+
     if (!isVisible) return null;
 
     const navItem = (
@@ -343,31 +464,62 @@ export const WadAuditModal: React.FC = () => {
         );
     };
 
-    const flatRow = (row: FlatRow) => (
-        <div
-            className={`wa-row wa-row--flat wa-row--${row.tone}${row.reveal ? ' wa-row--click' : ''}`}
-            title={row.reveal ? `${row.path} — click to reveal in the file tree` : row.path}
-            role={row.reveal ? 'button' : undefined}
-            tabIndex={row.reveal ? 0 : undefined}
-            onClick={row.reveal ? () => revealRow(row.path) : undefined}
-            onKeyDown={
-                row.reveal
-                    ? (e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            revealRow(row.path);
+    const flatRow = (row: FlatRow) => {
+        const match = row.tone === 'warning' ? liveMatches[row.path] : undefined;
+        const unmatched = row.tone === 'warning' && liveUnmatched.has(row.path);
+        const busy = pullingPath === row.path;
+        return (
+            <div
+                className={`wa-row wa-row--flat wa-row--${row.tone}${row.reveal ? ' wa-row--click' : ''}`}
+                title={
+                    match
+                        ? `${row.path}\nFound in ${match.wadName}: ${match.livePath}`
+                        : row.reveal
+                          ? `${row.path} — click to reveal in the file tree`
+                          : row.path
+                }
+                role={row.reveal ? 'button' : undefined}
+                tabIndex={row.reveal ? 0 : undefined}
+                onClick={row.reveal ? () => revealRow(row.path) : undefined}
+                onKeyDown={
+                    row.reveal
+                        ? (e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                revealRow(row.path);
+                            }
                         }
-                    }
-                    : undefined
-            }
-        >
-            <Icon name={row.tone === 'warning' ? 'warning' : 'trash'} className="wa-row__icon" />
-            <div className="wa-row__main">
-                <span className="wa-row__path">&#8206;{row.path}</span>
-                {row.size !== null && <span className="wa-row__size">{formatBytes(row.size)}</span>}
+                        : undefined
+                }
+            >
+                <Icon name={row.tone === 'warning' ? 'warning' : 'trash'} className="wa-row__icon" />
+                <div className="wa-row__main">
+                    <span className="wa-row__path">&#8206;{row.path}</span>
+                    {row.size !== null && <span className="wa-row__size">{formatBytes(row.size)}</span>}
+                    {row.tone === 'warning' && !unmatched && (
+                        <button
+                            className="wa-fix"
+                            disabled={fixing || checkingLive || !!pullingPath}
+                            title={
+                                match
+                                    ? `Pull ${match.livePath} from ${match.wadName} to ${row.path}`
+                                    : 'Find on live League install and pull to this path'
+                            }
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                void pullSingle(row.path);
+                            }}
+                        >
+                            {busy ? 'Pulling…' : match ? 'Pull' : 'Pull from live'}
+                        </button>
+                    )}
+                    {row.tone === 'warning' && unmatched && (
+                        <span className="wa-row__size">Not on live</span>
+                    )}
+                </div>
             </div>
-        </div>
-    );
+        );
+    };
 
     const body = () => {
         if (loading) {
@@ -591,6 +743,24 @@ export const WadAuditModal: React.FC = () => {
                                 onClick={() => void fixAlignment(fixable)}
                             >
                                 {fixing ? 'Resizing…' : `Resize ${fixable.length} textures to fit`}
+                            </Button>
+                        )}
+                        {view === 'missing' && missing.length > 0 && (
+                            <Button
+                                variant="secondary"
+                                disabled={checkingLive || fixing || loading || !!pullingPath}
+                                onClick={() => void checkLive()}
+                            >
+                                {checkingLive ? 'Checking live…' : 'Find on live'}
+                            </Button>
+                        )}
+                        {view === 'missing' && foundOnLive.length > 0 && (
+                            <Button
+                                variant="secondary"
+                                disabled={fixing || checkingLive || loading || !!pullingPath}
+                                onClick={() => void pullAllFound()}
+                            >
+                                {fixing ? 'Pulling…' : `Pull ${foundOnLive.length} from live`}
                             </Button>
                         )}
                     </div>

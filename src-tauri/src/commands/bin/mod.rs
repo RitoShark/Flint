@@ -1,6 +1,7 @@
 #[allow(clippy::module_inception)]
 pub mod bin;
 pub mod audit;
+pub mod live_pull;
 pub(crate) mod meta_schema;
 pub mod bin_split;
 pub mod paint;

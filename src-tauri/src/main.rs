@@ -376,6 +376,8 @@ fn main() {
             commands::audit::audit_project_missing_refs,
             commands::audit::recheck_project_file,
             commands::audit::recheck_standalone_file,
+            commands::live_pull::find_live_assets,
+            commands::live_pull::pull_live_assets,
             commands::bin_split::analyze_bin_for_split,
             commands::bin_split::split_bin_entries,
             commands::bin_split::analyze_folder_for_split,
