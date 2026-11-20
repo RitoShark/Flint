@@ -419,7 +419,7 @@
   margin-top: 12px;
 }
 
-.tb-grp > label:not(.dl-checkbox) {
+.tb-grp > label:not(.checkbox-label):not(.settings-toggle) {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -455,21 +455,74 @@
   color: var(--danger, #e5484d);
 }
 
+.tb-disclose-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
 .tb-disclose {
   display: flex;
   align-items: center;
   gap: 7px;
-  width: 100%;
-  margin-top: 14px;
-  padding: 6px 0;
+  flex: 1;
+  min-width: 0;
+  padding: 4px 0;
   background: transparent;
   border: none;
-  border-top: 1px solid var(--border);
   font-size: 11px;
   font-weight: 600;
   color: var(--text-secondary);
   cursor: pointer;
   transition: color var(--motion-fast);
+}
+
+.tb-axis-grid {
+  display: grid;
+  gap: 6px;
+}
+.tb-axis-grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.tb-axis-grid--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+.tb-axis-field {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 6px);
+  padding: 0 6px;
+  height: 28px;
+}
+.tb-axis-field:focus-within {
+  border-color: var(--accent-primary);
+}
+.tb-axis-field__tag {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  flex: none;
+}
+.tb-axis-field__in {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  padding: 0;
+  height: 100%;
+  font-size: 11.5px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  box-shadow: none;
+}
+.tb-axis-field__in:focus { outline: none; box-shadow: none; }
+.tb-axis-field__suf {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  flex: none;
 }
 
 .tb-disclose:hover { color: var(--text-primary); }

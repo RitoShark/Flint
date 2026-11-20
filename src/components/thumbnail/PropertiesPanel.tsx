@@ -184,62 +184,49 @@ function ModelProps({ layer, onChange, onBeginGesture, onCommitGesture }: { laye
         )}
       </div>
 
-      <button
-        type="button"
-        className="tb-disclose"
-        onClick={() => setTransformOpen(v => !v)}
-        aria-expanded={transformOpen}
-      >
-        <span className={`tb-disclose__chev${transformOpen ? ' tb-disclose__chev--open' : ''}`}>
-          <DlIcon name="chevronRight" />
-        </span>
-        <span>Transform</span>
-        {!transformOpen && transformTouched && <span className="tb-disclose__dot" />}
-      </button>
+      <div className="tb-disclose-row">
+        <button
+          type="button"
+          className="tb-disclose"
+          onClick={() => setTransformOpen(v => !v)}
+          aria-expanded={transformOpen}
+        >
+          <span className={`tb-disclose__chev${transformOpen ? ' tb-disclose__chev--open' : ''}`}>
+            <DlIcon name="chevronRight" />
+          </span>
+          <span>Transform</span>
+          {!transformOpen && transformTouched && <span className="tb-disclose__dot" />}
+        </button>
+        {transformTouched && (
+          <Button
+            size="sm"
+            variant="ghost"
+            title="Reset position and tilt/roll"
+            onClick={() => onChange({ posX: 0, posY: 0, posZ: 0, tiltX: 0, rollZ: 0 }, true)}
+          >
+            Reset
+          </Button>
+        )}
+      </div>
 
       {transformOpen && (
-        <>
+        <div className="tb-transform">
           <div className="tb-grp">
-            <label>Move X <b>{round1(layer.posX ?? 0)}</b></label>
-            <SliderNum
-              min={-500} max={500} step={1} value={round1(layer.posX ?? 0)}
-              onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture}
-              onChange={(v, rec) => onChange({ posX: v }, rec)}
-            />
+            <label>Position</label>
+            <div className="tb-axis-grid tb-axis-grid--3">
+              <AxisInput axis="X" min={-500} max={500} value={round1(layer.posX ?? 0)} onChange={(v) => onChange({ posX: v }, true)} />
+              <AxisInput axis="Y" min={-500} max={500} value={round1(layer.posY ?? 0)} onChange={(v) => onChange({ posY: v }, true)} />
+              <AxisInput axis="Z" min={-500} max={500} value={round1(layer.posZ ?? 0)} onChange={(v) => onChange({ posZ: v }, true)} />
+            </div>
           </div>
           <div className="tb-grp">
-            <label>Move Y <b>{round1(layer.posY ?? 0)}</b></label>
-            <SliderNum
-              min={-500} max={500} step={1} value={round1(layer.posY ?? 0)}
-              onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture}
-              onChange={(v, rec) => onChange({ posY: v }, rec)}
-            />
+            <label>Rotation</label>
+            <div className="tb-axis-grid tb-axis-grid--2">
+              <AxisInput axis="Tilt X" min={-180} max={180} value={layer.tiltX ?? 0} suffix="°" onChange={(v) => onChange({ tiltX: v }, true)} />
+              <AxisInput axis="Roll Z" min={-180} max={180} value={layer.rollZ ?? 0} suffix="°" onChange={(v) => onChange({ rollZ: v }, true)} />
+            </div>
           </div>
-          <div className="tb-grp">
-            <label>Move Z (depth) <b>{round1(layer.posZ ?? 0)}</b></label>
-            <SliderNum
-              min={-500} max={500} step={1} value={round1(layer.posZ ?? 0)}
-              onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture}
-              onChange={(v, rec) => onChange({ posZ: v }, rec)}
-            />
-          </div>
-          <div className="tb-grp">
-            <label>Tilt — X</label>
-            <SliderNum
-              min={-180} max={180} value={layer.tiltX ?? 0} suffix="°"
-              onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture}
-              onChange={(v, rec) => onChange({ tiltX: v }, rec)}
-            />
-          </div>
-          <div className="tb-grp">
-            <label>Roll — Z</label>
-            <SliderNum
-              min={-180} max={180} value={layer.rollZ ?? 0} suffix="°"
-              onBeginGesture={onBeginGesture} onCommitGesture={onCommitGesture}
-              onChange={(v, rec) => onChange({ rollZ: v }, rec)}
-            />
-          </div>
-        </>
+        </div>
       )}
     </>
   );
@@ -279,9 +266,33 @@ function SliderNum({ min, max, value, suffix, step, onChange, onBeginGesture, on
   );
 }
 
+function AxisInput({ axis, min, max, value, suffix, onChange }: {
+  axis: string; min: number; max: number; value: number; suffix?: string;
+  onChange: (v: number) => void;
+}) {
+  const clamp = (n: number) => Math.max(min, Math.min(max, n));
+  return (
+    <label className="tb-axis-field">
+      <span className="tb-axis-field__tag">{axis}</span>
+      <input
+        className="dl-input tb-axis-field__in"
+        type="number"
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => {
+          const n = Number(e.target.value);
+          if (Number.isFinite(n)) onChange(clamp(n));
+        }}
+      />
+      {suffix && <span className="tb-axis-field__suf">{suffix}</span>}
+    </label>
+  );
+}
+
 function CheckRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
-    <Checkbox className="tb-check-row" label={label} checked={checked} onChange={(e) => onChange(e.target.checked)} />
+    <Checkbox tone="accent" className="tb-check-row" label={label} checked={checked} onChange={(e) => onChange(e.target.checked)} />
   );
 }
 

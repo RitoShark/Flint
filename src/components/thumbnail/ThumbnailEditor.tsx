@@ -590,6 +590,11 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
           />
         </div>
 
+        <div className="tb-toolbar__group">
+          <IconButton size="sm" icon="undo" title="Undo (Ctrl+Z)" disabled={!history.canUndo()} onClick={undo} />
+          <IconButton size="sm" icon="redo" title="Redo (Ctrl+Shift+Z)" disabled={!history.canRedo()} onClick={redo} />
+        </div>
+
         <div style={{ flex: 1 }} />
 
         <div className="tb-toolbar__group">
@@ -636,10 +641,6 @@ export function ThumbnailEditor({ project, skn }: { project: string; skn: string
               <Button size="sm" variant="ghost" onClick={() => artboardControlsRef.current?.fitView()} title="Fit artboard (Ctrl+0)">Fit</Button>
               <Button size="sm" variant="ghost" onClick={() => artboardControlsRef.current?.fullView()} title="Zoom to 100% (Ctrl+1)">100%</Button>
               <Button size="sm" variant="ghost" onClick={() => artboardControlsRef.current?.fitSelection()} title="Fit selection (Ctrl+9)">Fit sel</Button>
-            </div>
-            <div className="tb-floatbar__group">
-              <IconButton size="sm" icon="history" title="Redo (Ctrl+Shift+Z)" disabled={!history.canRedo()} onClick={redo} className="tb-redo" />
-              <IconButton size="sm" icon="history" title="Undo (Ctrl+Z)" disabled={!history.canUndo()} onClick={undo} />
             </div>
           </div>
         </div>
