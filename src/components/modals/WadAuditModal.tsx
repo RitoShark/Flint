@@ -556,9 +556,9 @@ export const WadAuditModal: React.FC = () => {
             }
             return (
                 <div className="wa-list">
-                    {issues.map((issue) => (
+                    {issues.map((issue, index) => (
                         <div
-                            key={`${issue.code}:${issue.file}`}
+                            key={`${issue.code}:${issue.file}:${index}`}
                             className={`wa-row wa-row--${issue.severity} wa-row--click`}
                             role="button"
                             tabIndex={0}

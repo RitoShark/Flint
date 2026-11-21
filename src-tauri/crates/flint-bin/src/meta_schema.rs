@@ -26,6 +26,13 @@ struct Class {
     #[serde(default)]
     secondary_bases: HashMap<String, u32>,
     properties: HashMap<String, Property>,
+    #[serde(default)]
+    is: ClassFlags,
+}
+#[derive(Deserialize, Default)]
+struct ClassFlags {
+    #[serde(default)]
+    interface: bool,
 }
 #[derive(Deserialize)]
 struct Property {
@@ -47,10 +54,21 @@ struct ClassTypes {
     bases: Vec<u32>,
     properties: HashMap<u32, String>,
     targets: HashMap<u32, u32>,
+    is_interface: bool,
 }
 pub struct Schema {
     pub version: String,
     classes: HashMap<u32, ClassTypes>,
+    subclasses: HashMap<u32, Vec<u32>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChildRelocation {
+    pub container_field: u32,
+    pub container_is_pointer: bool,
+    pub target_class: u32,
+    pub expected_type: String,
+    pub expected_target: Option<u32>,
 }
 
 fn hash(s: &str) -> Result<u32, String> {
@@ -186,6 +204,42 @@ struct Finding {
     blocker: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+enum RelocationTarget {
+    Child {
+        container_field: u32,
+        container_is_pointer: bool,
+        target_class: u32,
+    },
+    Parent {
+        parent_class: u32,
+        expected: String,
+    },
+}
+
+#[derive(Default)]
+struct CheckFindings {
+    type_mismatches: BTreeMap<(u32, u32, String), Finding>,
+    relocations: BTreeMap<(u32, u32, RelocationTarget, String), usize>,
+    class_mismatches: BTreeMap<(u32, u32, u32, String), usize>,
+}
+
+fn scalar_compatible(got: &str, expected: &str) -> bool {
+    got == expected
+        || matches!(
+            (got, expected),
+            ("bool", "flag")
+                | ("flag", "bool")
+                | ("string", "file")
+                | ("file", "string")
+                | ("string", "hash")
+                | ("hash", "file")
+                | ("embed", "pointer")
+                | ("pointer", "embed")
+        )
+        || (int_range(got).is_some() && int_range(expected).is_some())
+}
+
 pub fn declared_type(value: &BinValue) -> String {
     fn name(ty: BinType) -> String {
         format!("{ty:?}").to_ascii_lowercase()
@@ -243,13 +297,18 @@ impl Schema {
             return Err("Unsupported or empty LeagueToolkit metadata dump".into());
         }
         let mut classes = HashMap::new();
+        let mut subclasses: HashMap<u32, Vec<u32>> = HashMap::new();
         for (id, class) in dump.classes {
+            let class_id = hash(&id)?;
             let mut bases = Vec::new();
             if let Some(base) = class.base {
                 bases.push(hash(&base)?);
             }
             for base in class.secondary_bases.keys() {
                 bases.push(hash(base)?);
+            }
+            for &base in &bases {
+                subclasses.entry(base).or_default().push(class_id);
             }
             let mut properties = HashMap::new();
             let mut targets = HashMap::new();
@@ -262,14 +321,36 @@ impl Schema {
                     properties.insert(id, ty);
                 }
             }
-            classes.insert(hash(&id)?, ClassTypes { bases, properties, targets });
+            classes.insert(
+                class_id,
+                ClassTypes {
+                    bases,
+                    properties,
+                    targets,
+                    is_interface: class.is.interface,
+                },
+            );
+        }
+        for list in subclasses.values_mut() {
+            list.sort_unstable();
+            list.dedup();
         }
         Ok(Self {
             version: dump.version,
             classes,
+            subclasses,
         })
     }
-    pub fn expected(&self, class: u32, field: u32) -> Option<&str> {
+
+    pub fn has_class(&self, class: u32) -> bool {
+        self.classes.contains_key(&class)
+    }
+
+    pub fn is_concrete(&self, class: u32) -> bool {
+        self.classes.get(&class).is_some_and(|c| !c.is_interface)
+    }
+
+    pub fn property_spec(&self, class: u32, field: u32) -> Option<(&str, Option<u32>)> {
         let mut todo = vec![class];
         let mut visited = HashSet::new();
         while let Some(id) = todo.pop() {
@@ -278,12 +359,253 @@ impl Schema {
             }
             if let Some(c) = self.classes.get(&id) {
                 if let Some(ty) = c.properties.get(&field) {
-                    return Some(ty);
+                    return Some((ty.as_str(), c.targets.get(&field).copied()));
                 }
                 todo.extend(c.bases.iter().rev());
             }
         }
         None
+    }
+
+    pub fn expected(&self, class: u32, field: u32) -> Option<&str> {
+        self.property_spec(class, field).map(|(ty, _)| ty)
+    }
+
+    pub fn all_properties(&self, class: u32) -> BTreeMap<u32, (&str, Option<u32>)> {
+        let mut out = BTreeMap::new();
+        let mut todo = vec![class];
+        let mut visited = HashSet::new();
+        while let Some(id) = todo.pop() {
+            if !visited.insert(id) {
+                continue;
+            }
+            if let Some(c) = self.classes.get(&id) {
+                for (&field, ty) in &c.properties {
+                    out.entry(field)
+                        .or_insert_with(|| (ty.as_str(), c.targets.get(&field).copied()));
+                }
+                todo.extend(c.bases.iter().rev());
+            }
+        }
+        out
+    }
+
+    pub fn concrete_subclasses(&self, base: u32) -> Vec<u32> {
+        let mut out = Vec::new();
+        let mut todo = vec![base];
+        let mut visited = HashSet::new();
+        while let Some(id) = todo.pop() {
+            if !visited.insert(id) {
+                continue;
+            }
+            if self.is_concrete(id) {
+                out.push(id);
+            }
+            if let Some(subs) = self.subclasses.get(&id) {
+                todo.extend(subs);
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+
+    pub fn value_classes_valid(&self, value: &BinValue, target: Option<u32>) -> bool {
+        match value {
+            BinValue::Pointer { class: 0, .. } => true,
+            BinValue::Pointer { class, .. } | BinValue::Embed { class, .. } => {
+                target.is_none_or(|base| self.derives_from(*class, base))
+            }
+            BinValue::List { items, .. } => {
+                items.iter().all(|v| self.value_classes_valid(v, target))
+            }
+            BinValue::Option { value: Some(v), .. } => self.value_classes_valid(v, target),
+            BinValue::Map { entries, .. } => entries
+                .iter()
+                .all(|(_, v)| self.value_classes_valid(v, target)),
+            _ => true,
+        }
+    }
+
+    pub fn unique_concrete_retag(
+        &self,
+        base: u32,
+        fields: &IndexMap<u32, BinValue>,
+        is_embed: bool,
+    ) -> Option<u32> {
+        if fields.is_empty() {
+            return None;
+        }
+        if is_embed {
+            return (self.is_concrete(base) && self.validate_fields(base, fields).is_ok())
+                .then_some(base);
+        }
+        let mut matches = self
+            .concrete_subclasses(base)
+            .into_iter()
+            .filter(|&c| self.validate_fields(c, fields).is_ok());
+        let first = matches.next()?;
+        matches.next().is_none().then_some(first)
+    }
+
+    fn collect_retag_targets(&self, value: &BinValue, target: u32, out: &mut Vec<u32>) -> bool {
+        match value {
+            BinValue::Pointer { class: 0, .. } => true,
+            BinValue::Pointer { class, fields } => {
+                if self.derives_from(*class, target) {
+                    true
+                } else if let Some(new_cls) = self.unique_concrete_retag(target, fields, false) {
+                    out.push(new_cls);
+                    true
+                } else {
+                    false
+                }
+            }
+            BinValue::Embed { class, fields } => {
+                if self.derives_from(*class, target) {
+                    true
+                } else if let Some(new_cls) = self.unique_concrete_retag(target, fields, true) {
+                    out.push(new_cls);
+                    true
+                } else {
+                    false
+                }
+            }
+            BinValue::List { items, .. } => items
+                .iter()
+                .all(|v| self.collect_retag_targets(v, target, out)),
+            BinValue::Option { value: Some(v), .. } => self.collect_retag_targets(v, target, out),
+            BinValue::Map { entries, .. } => entries
+                .iter()
+                .all(|(_, v)| self.collect_retag_targets(v, target, out)),
+            _ => true,
+        }
+    }
+
+    pub fn is_compatible_shape(
+        &self,
+        value: &BinValue,
+        expected: &str,
+        target: Option<u32>,
+    ) -> bool {
+        if let Some(inner) = expected.strip_prefix("option[").and_then(|s| s.strip_suffix(']')) {
+            if let BinValue::Option { item, value: opt } = value {
+                return match opt {
+                    Some(v) => self.is_compatible_shape(v, inner, target),
+                    None => scalar_compatible(&format!("{item:?}").to_ascii_lowercase(), inner),
+                };
+            }
+            return self.is_compatible_shape(value, inner, target);
+        }
+        if let BinValue::Option { value: opt, .. } = value {
+            return opt
+                .as_deref()
+                .is_some_and(|v| self.is_compatible_shape(v, expected, target));
+        }
+        if let Some((outer, inner)) = expected.strip_suffix(']').and_then(|s| s.split_once('[')) {
+            return match (outer, value) {
+                ("list" | "list2", BinValue::List { item, items, .. }) => {
+                    if items.is_empty() {
+                        scalar_compatible(&format!("{item:?}").to_ascii_lowercase(), inner)
+                    } else {
+                        items
+                            .iter()
+                            .all(|v| self.is_compatible_shape(v, inner, target))
+                    }
+                }
+                (
+                    "map",
+                    BinValue::Map {
+                        key,
+                        value: val_ty,
+                        entries,
+                    },
+                ) => {
+                    let Some((ek, ev)) = inner.split_once(',') else {
+                        return false;
+                    };
+                    if entries.is_empty() {
+                        scalar_compatible(&format!("{key:?}").to_ascii_lowercase(), ek)
+                            && scalar_compatible(&format!("{val_ty:?}").to_ascii_lowercase(), ev)
+                    } else {
+                        entries.iter().all(|(k, v)| {
+                            self.is_compatible_shape(k, ek, None)
+                                && self.is_compatible_shape(v, ev, target)
+                        })
+                    }
+                }
+                _ => false,
+            };
+        }
+        let got = declared_type(value);
+        if got == expected {
+            return match value {
+                BinValue::Pointer { class: 0, .. } => true,
+                BinValue::Pointer { class, .. } | BinValue::Embed { class, .. } => {
+                    target.is_none_or(|t| self.derives_from(*class, t))
+                }
+                _ => true,
+            };
+        }
+        match (value, expected) {
+            (BinValue::Bool(_), "flag") | (BinValue::Flag(_), "bool") => true,
+            (BinValue::String(_), "file" | "hash")
+            | (BinValue::File(_), "string")
+            | (BinValue::Hash(_), "file") => true,
+            (BinValue::Embed { class, .. }, "pointer") => {
+                target.is_none_or(|t| self.derives_from(*class, t))
+            }
+            (BinValue::Pointer { class, .. }, "embed") if *class != 0 => {
+                target.is_none_or(|t| *class == t)
+            }
+            _ if int_range(&got).is_some() && int_range(expected).is_some() => {
+                int_range(expected).is_some_and(|(low, high)| {
+                    let mut found = Vec::new();
+                    integers(value, &mut found);
+                    found.into_iter().all(|n| n >= low && n <= high)
+                })
+            }
+            _ => false,
+        }
+    }
+
+    pub fn unique_child_relocation(
+        &self,
+        class: u32,
+        field: u32,
+        value: &BinValue,
+    ) -> Option<ChildRelocation> {
+        if !self.has_class(class) || self.expected(class, field).is_some() {
+            return None;
+        }
+        let mut candidates = Vec::new();
+        for (prop_field, (prop_ty, prop_target)) in self.all_properties(class) {
+            if !matches!(prop_ty, "pointer" | "embed") {
+                continue;
+            }
+            let Some(target_class) = prop_target else {
+                continue;
+            };
+            if !self.is_concrete(target_class) {
+                continue;
+            }
+            if let Some((inner_ty, inner_target)) = self.property_spec(target_class, field) {
+                if self.is_compatible_shape(value, inner_ty, inner_target) {
+                    candidates.push(ChildRelocation {
+                        container_field: prop_field,
+                        container_is_pointer: prop_ty == "pointer",
+                        target_class,
+                        expected_type: inner_ty.to_string(),
+                        expected_target: inner_target,
+                    });
+                }
+            }
+        }
+        if candidates.len() == 1 {
+            candidates.pop()
+        } else {
+            None
+        }
     }
     pub fn derives_from(&self, class: u32, base: u32) -> bool {
         let mut todo = vec![class];
@@ -304,21 +626,11 @@ impl Schema {
         }
         for (&field, value) in fields {
             let actual = declared_type(value);
-            if self.expected(class, field) != Some(actual.as_str()) {
+            let Some((expected, target)) = self.property_spec(class, field) else {
                 return Err(format!("Metadata {} does not accept 0x{class:08x}.0x{field:08x} as {actual}", self.version));
-            }
-            let mut todo = vec![class];
-            let mut visited = HashSet::new();
-            let mut target = None;
-            while let Some(id) = todo.pop() {
-                if !visited.insert(id) { continue; }
-                if let Some(c) = self.classes.get(&id) {
-                    if c.properties.contains_key(&field) {
-                        target = c.targets.get(&field).copied();
-                        break;
-                    }
-                    todo.extend(c.bases.iter().rev());
-                }
+            };
+            if expected != actual.as_str() {
+                return Err(format!("Metadata {} does not accept 0x{class:08x}.0x{field:08x} as {actual}", self.version));
             }
             self.validate_value(value, target)?;
         }
@@ -357,89 +669,241 @@ impl Schema {
         names: &HashMapper,
         text: Option<&str>,
     ) -> Vec<CheckIssue> {
-        // One finding per class/property/actual type, just like the bundled migration tally.
-        let mut findings = BTreeMap::new();
+        let mut findings = CheckFindings::default();
         for entry in &bin.entries {
-            self.scan(entry.class_hash, &entry.fields, &mut findings);
+            self.scan(entry.class_hash, &entry.fields, None, &mut findings);
         }
-        findings.into_iter().map(|((class, field, got), finding)| {
-            let label = |id: u32| names.get(id as u64).map(str::to_owned).unwrap_or_else(|| format!("0x{id:08x}"));
+        let label = |id: u32| {
+            names
+                .get(id as u64)
+                .map(str::to_owned)
+                .unwrap_or_else(|| format!("0x{id:08x}"))
+        };
+        let mut out: Vec<CheckIssue> = findings
+            .type_mismatches
+            .into_iter()
+            .map(|((class, field, got), finding)| {
+                let class_name = label(class);
+                let field_name = label(field);
+                let Finding {
+                    expected,
+                    count,
+                    blocker,
+                } = finding;
+                let mut detail = if got == "string" && expected == "file" {
+                    format!("Change `{field_name}: string =` to `{field_name}: file =` and keep the same path. An asset can exist and still fail to load when its reference carries the wrong type, so this shows up as a missing texture or model rather than an error.")
+                } else {
+                    format!("Change the declaration to `{field_name}: {expected}` and make sure the value matches that type.")
+                };
+                detail.push_str(&format!(" Checked against LeagueToolkit metadata {}, which can be ahead of or behind your game build. That is why this is a warning.", self.version));
+                if let Some(blocker) = &blocker {
+                    detail.push_str(&format!(" A declaration-only edit is insufficient: {blocker} The Issues panel can attempt a value-preserving repair."));
+                }
+                let lines = text
+                    .map(|t| crate::checks::declaration_lines(t, class, &field_name, &got))
+                    .unwrap_or_default();
+                let fix = (blocker.is_none() && !lines.is_empty()).then(|| TypeFix {
+                    class: class_name.clone(),
+                    field: field_name.clone(),
+                    from: got.clone(),
+                    to: expected.clone(),
+                    lines: lines.clone(),
+                });
+                CheckIssue {
+                    severity: Severity::Warning,
+                    code: "bin.schema-type-mismatch",
+                    file: file.into(),
+                    message: format!(
+                        "{class_name}.{field_name} is declared `{got}`, metadata expects `{expected}` ({count} occurrence{})",
+                        if count == 1 { "" } else { "s" }
+                    ),
+                    line: lines.first().copied(),
+                    paths: Vec::new(),
+                    expected: Some(format!("{field_name}: {expected}")),
+                    detail: Some(detail),
+                    fix,
+                }
+            })
+            .collect();
+
+        for ((class, field, target, got), count) in findings.relocations {
             let class_name = label(class);
             let field_name = label(field);
-            let Finding { expected, count, blocker } = finding;
-            let mut detail = if got == "string" && expected == "file" {
-                format!("Change `{field_name}: string =` to `{field_name}: file =` and keep the same path. An asset can exist and still fail to load when its reference carries the wrong type, so this shows up as a missing texture or model rather than an error.")
-            } else {
-                format!("Change the declaration to `{field_name}: {expected}` and make sure the value matches that type.")
+            let plural = if count == 1 { "" } else { "s" };
+            let lines = text
+                .map(|t| crate::checks::declaration_lines(t, class, &field_name, &got))
+                .unwrap_or_default();
+            let (message, expected, detail) = match target {
+                RelocationTarget::Child {
+                    container_field,
+                    container_is_pointer,
+                    target_class,
+                } => {
+                    let container_name = label(container_field);
+                    let target_name = label(target_class);
+                    let container_ty = if container_is_pointer {
+                        "pointer"
+                    } else {
+                        "embed"
+                    };
+                    (
+                        format!(
+                            "{class_name}.{field_name} moved into {class_name}.{container_name} ({target_name}) ({count} occurrence{plural})"
+                        ),
+                        format!("{container_name}: {container_ty} ({target_name}.{field_name})"),
+                        format!(
+                            "Move `{field_name}` into `{container_name}` (`{target_name}`). Checked against LeagueToolkit metadata {}, which can be ahead of or behind your game build. That is why this is a warning. The Issues panel can relocate this field automatically.",
+                            self.version
+                        ),
+                    )
+                }
+                RelocationTarget::Parent {
+                    parent_class,
+                    expected,
+                } => {
+                    let parent_name = label(parent_class);
+                    (
+                        format!(
+                            "{class_name}.{field_name} moved to parent {parent_name}.{field_name} ({count} occurrence{plural})"
+                        ),
+                        format!("{parent_name}.{field_name}: {expected}"),
+                        format!(
+                            "Move `{field_name}` up onto `{parent_name}`. Checked against LeagueToolkit metadata {}, which can be ahead of or behind your game build. That is why this is a warning. The Issues panel can relocate this field automatically.",
+                            self.version
+                        ),
+                    )
+                }
             };
-            detail.push_str(&format!(" Checked against LeagueToolkit metadata {}, which can be ahead of or behind your game build. That is why this is a warning.", self.version));
-            if let Some(blocker) = &blocker {
-                detail.push_str(&format!(" A declaration-only edit is insufficient: {blocker} The Issues panel can attempt a value-preserving repair."));
-            }
-            let lines = text.map(|t| crate::checks::declaration_lines(t, class, &field_name, &got)).unwrap_or_default();
-            let fix = (blocker.is_none() && !lines.is_empty()).then(|| TypeFix {
-                class: class_name.clone(),
-                field: field_name.clone(),
-                from: got.clone(),
-                to: expected.clone(),
-                lines: lines.clone(),
-            });
-            CheckIssue {
-                severity: Severity::Warning, code: "bin.schema-type-mismatch", file: file.into(),
-                message: format!("{class_name}.{field_name} is declared `{got}`, metadata expects `{expected}` ({count} occurrence{})", if count == 1 { "" } else { "s" }),
+            out.push(CheckIssue {
+                severity: Severity::Warning,
+                code: "bin.schema-field-relocated",
+                file: file.into(),
+                message,
                 line: lines.first().copied(),
                 paths: Vec::new(),
-                expected: Some(format!("{field_name}: {expected}")),
+                expected: Some(expected),
                 detail: Some(detail),
-                fix,
-            }
-        }).collect()
+                fix: None,
+            });
+        }
+
+        for ((class, field, retag_class, got), count) in findings.class_mismatches {
+            let class_name = label(class);
+            let field_name = label(field);
+            let retag_name = label(retag_class);
+            let plural = if count == 1 { "" } else { "s" };
+            let lines = text
+                .map(|t| crate::checks::declaration_lines(t, class, &field_name, &got))
+                .unwrap_or_default();
+            out.push(CheckIssue {
+                severity: Severity::Warning,
+                code: "bin.schema-class-mismatch",
+                file: file.into(),
+                message: format!(
+                    "{class_name}.{field_name} can migrate to `{retag_name}` ({count} occurrence{plural})"
+                ),
+                line: lines.first().copied(),
+                paths: Vec::new(),
+                expected: Some(format!("{field_name}: {got} ({retag_name})")),
+                detail: Some(format!(
+                    "Change `{field_name}` object class to `{retag_name}`. Checked against LeagueToolkit metadata {}, which can be ahead of or behind your game build. That is why this is a warning. The Issues panel can migrate this class automatically.",
+                    self.version
+                )),
+                fix: None,
+            });
+        }
+
+        out
     }
     fn scan(
         &self,
         class: u32,
         fields: &IndexMap<u32, BinValue>,
-        out: &mut BTreeMap<(u32, u32, String), Finding>,
+        parent_class: Option<u32>,
+        out: &mut CheckFindings,
     ) {
+        let known_class = self.has_class(class);
         for (&field, value) in fields {
-            if let Some(expected) = self.expected(class, field) {
+            if let Some((expected, target)) = self.property_spec(class, field) {
                 let got = declared_type(value);
-                // The existing migration rule owns this mismatch; don't count it twice.
                 let migration =
                     crate::migration::table().get(&crate::migration::table_key(class, field));
                 let covered = migration.is_some_and(|m| crate::checks::declares_old_type(m, value));
                 if got != expected && !covered {
-                    let finding = out.entry((class, field, got.clone())).or_insert(Finding {
-                        expected: expected.into(),
-                        count: 0,
-                        blocker: None,
-                    });
+                    let finding = out
+                        .type_mismatches
+                        .entry((class, field, got.clone()))
+                        .or_insert(Finding {
+                            expected: expected.into(),
+                            count: 0,
+                            blocker: None,
+                        });
                     finding.count += 1;
                     if finding.blocker.is_none() {
                         finding.blocker = swap_blocker(value, &got, expected);
                     }
+                } else if got == expected
+                    && !covered
+                    && !self.value_classes_valid(value, target)
+                {
+                    if let Some(target_cls) = target {
+                        let mut retags = Vec::new();
+                        if self.collect_retag_targets(value, target_cls, &mut retags) {
+                            if let Some(&retag_cls) = retags.first() {
+                                *out.class_mismatches
+                                    .entry((class, field, retag_cls, got))
+                                    .or_default() += 1;
+                            }
+                        }
+                    }
+                }
+            } else if known_class {
+                let got = declared_type(value);
+                if let Some(reloc) = self.unique_child_relocation(class, field, value) {
+                    let target = RelocationTarget::Child {
+                        container_field: reloc.container_field,
+                        container_is_pointer: reloc.container_is_pointer,
+                        target_class: reloc.target_class,
+                    };
+                    *out.relocations
+                        .entry((class, field, target, got))
+                        .or_default() += 1;
+                } else if let Some(parent) = parent_class {
+                    if self.has_class(parent) {
+                        if let Some((p_ty, p_tgt)) = self.property_spec(parent, field) {
+                            if self.is_compatible_shape(value, p_ty, p_tgt) {
+                                let target = RelocationTarget::Parent {
+                                    parent_class: parent,
+                                    expected: p_ty.into(),
+                                };
+                                *out.relocations
+                                    .entry((class, field, target, got))
+                                    .or_default() += 1;
+                            }
+                        }
+                    }
                 }
             }
-            self.walk(value, out);
+            self.walk(value, Some(class), out);
         }
     }
-    fn walk(&self, value: &BinValue, out: &mut BTreeMap<(u32, u32, String), Finding>) {
+    fn walk(&self, value: &BinValue, direct_parent: Option<u32>, out: &mut CheckFindings) {
         match value {
             BinValue::Pointer { class, fields } | BinValue::Embed { class, fields } => {
-                self.scan(*class, fields, out)
+                self.scan(*class, fields, direct_parent, out)
             }
             BinValue::List { items, .. } => {
                 for v in items {
-                    self.walk(v, out);
+                    self.walk(v, None, out);
                 }
             }
             BinValue::Map { entries, .. } => {
                 for (k, v) in entries {
-                    self.walk(k, out);
-                    self.walk(v, out);
+                    self.walk(k, None, out);
+                    self.walk(v, None, out);
                 }
             }
-            BinValue::Option { value: Some(v), .. } => self.walk(v, out),
+            BinValue::Option { value: Some(v), .. } => self.walk(v, None, out),
             _ => {}
         }
     }
@@ -722,12 +1186,14 @@ mod tests {
         let field = ritoshark::hash::fnv1a("texture");
         let s = Schema {
             version: "test".into(),
+            subclasses: HashMap::new(),
             classes: HashMap::from([(
                 class,
                 ClassTypes {
                     bases: vec![],
                     targets: HashMap::new(),
                     properties: HashMap::from([(field, "file".into())]),
+                    is_interface: false,
                 },
             )]),
         };
@@ -763,5 +1229,143 @@ mod tests {
             Some("file")
         );
         assert!(schema.classes.len() > 1000);
+    }
+
+    #[test]
+    fn parses_interface_flags_and_resolves_unique_concrete_retag() {
+        let schema = Schema::parse(
+            br#"{"formatVersion":3,"version":"test","classes":{
+            "0x10":{"is":{"interface":true},"properties":{}},
+            "0x11":{"base":"0x10","is":{"interface":false},"properties":{"0x1":{"value_type":"String"}}},
+            "0x12":{"base":"0x10","properties":{"0x2":{"value_type":"U32"}}}
+        }}"#,
+        )
+        .unwrap();
+        assert!(!schema.is_concrete(0x10));
+        assert!(schema.is_concrete(0x11));
+        assert!(schema.is_concrete(0x12));
+        assert_eq!(schema.concrete_subclasses(0x10), vec![0x11, 0x12]);
+
+        let fields_a = IndexMap::from([(1, BinValue::String("a".into()))]);
+        assert_eq!(schema.unique_concrete_retag(0x10, &fields_a, false), Some(0x11));
+        assert_eq!(schema.unique_concrete_retag(0x10, &IndexMap::new(), false), None);
+
+        let ambiguous = Schema::parse(
+            br#"{"formatVersion":3,"version":"test","classes":{
+            "0x10":{"is":{"interface":true},"properties":{}},
+            "0x11":{"base":"0x10","properties":{"0x1":{"value_type":"String"}}},
+            "0x12":{"base":"0x10","properties":{"0x1":{"value_type":"String"}}}
+        }}"#,
+        )
+        .unwrap();
+        assert_eq!(ambiguous.unique_concrete_retag(0x10, &fields_a, false), None);
+    }
+
+    #[test]
+    fn detects_relocated_and_retaggable_fields_without_false_positives() {
+        let schema = Schema::parse(
+            br#"{"formatVersion":3,"version":"16.22","classes":{
+            "0x100":{"properties":{
+                "0x1":{"value_type":"Pointer","other_class":"0x200"},
+                "0x2":{"value_type":"Pointer","other_class":"0x201"},
+                "0x3":{"value_type":"Pointer","other_class":"0x300"},
+                "0x4":{"value_type":"U32"}
+            }},
+            "0x200":{"properties":{"0xa":{"value_type":"String"},"0xc":{"value_type":"U32"}}},
+            "0x201":{"properties":{"0xc":{"value_type":"U32"}}},
+            "0x300":{"is":{"interface":true},"properties":{}},
+            "0x301":{"base":"0x300","properties":{"0xd":{"value_type":"F32"}}}
+        }}"#,
+        )
+        .unwrap();
+        let bin = Bin {
+            entries: vec![BinEntry {
+                path_hash: 0,
+                class_hash: 0x100,
+                fields: IndexMap::from([
+                    (0xa, BinValue::String("tex.tex".into())),
+                    (0xc, BinValue::U32(5)),
+                    (0x99, BinValue::U32(1)),
+                    (
+                        0x2,
+                        BinValue::Pointer {
+                            class: 0x201,
+                            fields: IndexMap::from([(0x4, BinValue::U32(9))]),
+                        },
+                    ),
+                    (
+                        0x3,
+                        BinValue::Pointer {
+                            class: 0x999,
+                            fields: IndexMap::from([(0xd, BinValue::F32(1.5))]),
+                        },
+                    ),
+                ]),
+            }],
+            ..Default::default()
+        };
+        let text = "\"e\" = 0x00000100 {\n    0x0000000a: string = \"tex.tex\"\n    0x0000000c: u32 = 5\n    0x00000099: u32 = 1\n    0x00000002: pointer = 0x00000201 {\n        0x00000004: u32 = 9\n    }\n    0x00000003: pointer = 0x00000999 {\n        0x0000000d: f32 = 1.5\n    }\n}\n";
+        let issues = schema.check(&bin, "vfx.bin", &HashMapper::new(), Some(text));
+        assert_eq!(issues.len(), 3);
+        let reloc_child = issues
+            .iter()
+            .find(|i| i.code == "bin.schema-field-relocated" && i.line == Some(2))
+            .unwrap();
+        assert!(reloc_child.message.contains("moved into"));
+        let reloc_parent = issues
+            .iter()
+            .find(|i| i.code == "bin.schema-field-relocated" && i.line == Some(6))
+            .unwrap();
+        assert!(reloc_parent.message.contains("moved to parent"));
+        let class_issue = issues
+            .iter()
+            .find(|i| i.code == "bin.schema-class-mismatch")
+            .unwrap();
+        assert_eq!(class_issue.line, Some(8));
+        assert!(class_issue.message.contains("0x00000301"));
+    }
+
+    #[test]
+    fn class_mismatch_skips_migration_retags_and_ambiguous_targets() {
+        let schema = Schema::parse(
+            br#"{"formatVersion":3,"version":"16.22","classes":{
+            "0x3b09052f":{"properties":{"0x99262238":{"value_type":"Pointer","other_class":"0x73b4a2eb"}}},
+            "0x73b4a2eb":{"properties":{"0x1":{"value_type":"U32"}}},
+            "0x50":{"properties":{"0x10":{"value_type":"Pointer","other_class":"0x60"}}},
+            "0x60":{"is":{"interface":true},"properties":{}},
+            "0x61":{"base":"0x60","properties":{"0x1":{"value_type":"U32"}}},
+            "0x62":{"base":"0x60","properties":{"0x1":{"value_type":"U32"}}}
+        }}"#,
+        )
+        .unwrap();
+        let bin = Bin {
+            entries: vec![
+                BinEntry {
+                    path_hash: 1,
+                    class_hash: 0x3b09052f,
+                    fields: IndexMap::from([(
+                        ritoshark::hash::fnv1a("value"),
+                        BinValue::Embed {
+                            class: 0x999,
+                            fields: IndexMap::from([(1, BinValue::U32(1))]),
+                        },
+                    )]),
+                },
+                BinEntry {
+                    path_hash: 2,
+                    class_hash: 0x50,
+                    fields: IndexMap::from([(
+                        0x10,
+                        BinValue::Pointer {
+                            class: 0x999,
+                            fields: IndexMap::from([(1, BinValue::U32(1))]),
+                        },
+                    )]),
+                },
+            ],
+            ..Default::default()
+        };
+        let issues = schema.check(&bin, "a.bin", &HashMapper::new(), None);
+        assert!(issues.iter().all(|i| i.code != "bin.schema-class-mismatch"));
     }
 }
